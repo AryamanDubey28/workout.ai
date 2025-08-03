@@ -1,19 +1,53 @@
 'use client';
 
-import { useState } from "react";
-import { Dumbbell, Plus } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Dumbbell, Plus, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { WorkoutForm } from "@/components/WorkoutForm";
 import { WorkoutCard } from "@/components/WorkoutCard";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
+import { AuthForm } from "@/components/AuthForm";
+import { UserProfile } from "@/components/UserProfile";
 import { Workout } from "@/types/workout";
+import { User as UserType } from "@/types/user";
 
 export default function Home() {
+  const [user, setUser] = useState<UserType | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [showProfile, setShowProfile] = useState(false);
   const [workouts, setWorkouts] = useState<Workout[]>([]);
   const [isCreating, setIsCreating] = useState(false);
   const [editingWorkout, setEditingWorkout] = useState<Workout | null>(null);
   const [workoutToDelete, setWorkoutToDelete] = useState<Workout | null>(null);
+
+  // Check authentication status
+  useEffect(() => {
+    checkAuth();
+  }, []);
+
+  const checkAuth = async () => {
+    try {
+      const response = await fetch('/api/auth/me');
+      if (response.ok) {
+        const data = await response.json();
+        setUser(data.user);
+      }
+    } catch (error) {
+      console.error('Auth check failed:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleAuthSuccess = () => {
+    checkAuth();
+  };
+
+  const handleLogout = () => {
+    setUser(null);
+    setShowProfile(false);
+  };
 
   const handleSaveWorkout = (workout: Workout) => {
     if (editingWorkout) {
@@ -59,6 +93,54 @@ export default function Home() {
 
   const isFormOpen = isCreating || editingWorkout;
 
+  // Show loading spinner
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <Dumbbell className="h-8 w-8 text-primary mx-auto mb-2 animate-pulse" />
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show auth form if not authenticated
+  if (!user) {
+    return <AuthForm onAuthSuccess={handleAuthSuccess} />;
+  }
+
+  // Show user profile if requested
+  if (showProfile) {
+    return (
+      <div className="min-h-screen bg-background">
+        {/* Header */}
+        <header className="border-b">
+          <div className="container mx-auto px-4 py-4 flex justify-between items-center">
+            <div className="flex items-center space-x-2">
+              <Dumbbell className="h-8 w-8 text-primary" />
+              <h1 className="text-2xl font-bold">Workout AI</h1>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button 
+                variant="ghost" 
+                onClick={() => setShowProfile(false)}
+              >
+                Back to Workouts
+              </Button>
+              <ThemeToggle />
+            </div>
+          </div>
+        </header>
+
+        {/* Profile Content */}
+        <main className="container mx-auto px-4 py-6 sm:py-8 max-w-md">
+          <UserProfile user={user} onLogout={handleLogout} />
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
@@ -68,7 +150,18 @@ export default function Home() {
             <Dumbbell className="h-8 w-8 text-primary" />
             <h1 className="text-2xl font-bold">Workout AI</h1>
           </div>
-          <ThemeToggle />
+          <div className="flex items-center gap-2">
+            <Button 
+              variant="ghost" 
+              size="sm"
+              onClick={() => setShowProfile(true)}
+              className="flex items-center gap-2"
+            >
+              <User className="h-4 w-4" />
+              {user.name}
+            </Button>
+            <ThemeToggle />
+          </div>
         </div>
       </header>
 
