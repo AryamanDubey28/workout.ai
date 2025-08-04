@@ -192,6 +192,39 @@ export async function getUserWorkouts(userId: string): Promise<Workout[]> {
   }
 }
 
+// Update an existing workout
+export async function updateWorkout(userId: string, workoutId: string, workout: Partial<Workout>): Promise<Workout | null> {
+  try {
+    const result = await sql`
+      UPDATE workouts 
+      SET 
+        name = ${workout.name || null},
+        date = ${workout.date ? workout.date.toISOString() : null},
+        exercises = ${workout.exercises ? JSON.stringify(workout.exercises) : null},
+        updated_at = ${workout.updatedAt ? workout.updatedAt.toISOString() : new Date().toISOString()}
+      WHERE id = ${workoutId} AND user_id = ${userId}
+      RETURNING id, name, date, exercises, created_at, updated_at;
+    `;
+    
+    if (result.rowCount === 0) {
+      return null; // Workout not found or not owned by user
+    }
+    
+    const row = result.rows[0];
+    return {
+      id: row.id,
+      name: row.name,
+      date: new Date(row.date),
+      exercises: row.exercises,
+      createdAt: new Date(row.created_at),
+      updatedAt: new Date(row.updated_at),
+    } as Workout;
+  } catch (error) {
+    console.error('Error updating workout:', error);
+    return null;
+  }
+}
+
 // Delete a workout
 export async function deleteWorkout(userId: string, workoutId: string): Promise<boolean> {
   try {
