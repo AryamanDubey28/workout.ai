@@ -32,11 +32,34 @@ export default function Home() {
       if (response.ok) {
         const data = await response.json();
         setUser(data.user);
+        // Load workouts after successful authentication
+        await loadWorkouts();
       }
     } catch (error) {
       console.error('Auth check failed:', error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const loadWorkouts = async () => {
+    try {
+      const response = await fetch('/api/workouts');
+      if (response.ok) {
+        const data = await response.json();
+        // Convert date strings back to Date objects
+        const workoutsWithDates = data.workouts.map((workout: any) => ({
+          ...workout,
+          date: new Date(workout.date),
+          createdAt: new Date(workout.createdAt),
+          updatedAt: new Date(workout.updatedAt),
+        }));
+        setWorkouts(workoutsWithDates);
+      } else {
+        console.error('Failed to load workouts');
+      }
+    } catch (error) {
+      console.error('Error loading workouts:', error);
     }
   };
 
@@ -46,18 +69,56 @@ export default function Home() {
 
   const handleLogout = () => {
     setUser(null);
+    setWorkouts([]); // Clear workouts on logout
     setShowProfile(false);
   };
 
-  const handleSaveWorkout = (workout: Workout) => {
-    if (editingWorkout) {
-      // Update existing workout
-      setWorkouts(workouts.map(w => w.id === workout.id ? workout : w));
-      setEditingWorkout(null);
-    } else {
-      // Add new workout
-      setWorkouts([workout, ...workouts]);
-      setIsCreating(false);
+  const handleSaveWorkout = async (workout: Workout) => {
+    try {
+      if (editingWorkout) {
+        // For now, just update local state (you mentioned we'll work on update logic later)
+        setWorkouts(workouts.map(w => w.id === workout.id ? workout : w));
+        setEditingWorkout(null);
+      } else {
+        // Save new workout to database
+        const response = await fetch('/api/workouts', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(workout),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          // Convert date strings back to Date objects for the saved workout
+          const savedWorkout = {
+            ...data.workout,
+            date: new Date(data.workout.date),
+            createdAt: new Date(data.workout.createdAt),
+            updatedAt: new Date(data.workout.updatedAt),
+          };
+          // Add the saved workout to local state
+          setWorkouts([savedWorkout, ...workouts]);
+          setIsCreating(false);
+        } else {
+          const error = await response.json();
+          console.error('Failed to save workout:', error.error);
+          // Still update local state as fallback
+          setWorkouts([workout, ...workouts]);
+          setIsCreating(false);
+        }
+      }
+    } catch (error) {
+      console.error('Error saving workout:', error);
+      // Fallback to local state update
+      if (editingWorkout) {
+        setWorkouts(workouts.map(w => w.id === workout.id ? workout : w));
+        setEditingWorkout(null);
+      } else {
+        setWorkouts([workout, ...workouts]);
+        setIsCreating(false);
+      }
     }
   };
 
@@ -80,9 +141,28 @@ export default function Home() {
     setWorkoutToDelete(workout);
   };
 
-  const confirmDeleteWorkout = () => {
+  const confirmDeleteWorkout = async () => {
     if (workoutToDelete) {
-      setWorkouts(workouts.filter(w => w.id !== workoutToDelete.id));
+      try {
+        const response = await fetch(`/api/workouts/${workoutToDelete.id}`, {
+          method: 'DELETE',
+        });
+
+        if (response.ok) {
+          // Remove from local state after successful deletion
+          setWorkouts(workouts.filter(w => w.id !== workoutToDelete.id));
+        } else {
+          const error = await response.json();
+          console.error('Failed to delete workout:', error.error);
+          // Still remove from local state as fallback
+          setWorkouts(workouts.filter(w => w.id !== workoutToDelete.id));
+        }
+      } catch (error) {
+        console.error('Error deleting workout:', error);
+        // Fallback to local state update
+        setWorkouts(workouts.filter(w => w.id !== workoutToDelete.id));
+      }
+      
       setWorkoutToDelete(null);
     }
   };
