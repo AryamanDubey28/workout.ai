@@ -76,9 +76,34 @@ export default function Home() {
   const handleSaveWorkout = async (workout: Workout) => {
     try {
       if (editingWorkout) {
-        // For now, just update local state (you mentioned we'll work on update logic later)
-        setWorkouts(workouts.map(w => w.id === workout.id ? workout : w));
-        setEditingWorkout(null);
+        // Update existing workout in database
+        const response = await fetch(`/api/workouts/${workout.id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(workout),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          // Convert date strings back to Date objects for the updated workout
+          const updatedWorkout = {
+            ...data.workout,
+            date: new Date(data.workout.date),
+            createdAt: new Date(data.workout.createdAt),
+            updatedAt: new Date(data.workout.updatedAt),
+          };
+          // Update the workout in local state
+          setWorkouts(workouts.map(w => w.id === workout.id ? updatedWorkout : w));
+          setEditingWorkout(null);
+        } else {
+          const error = await response.json();
+          console.error('Failed to update workout:', error.error);
+          // Still update local state as fallback
+          setWorkouts(workouts.map(w => w.id === workout.id ? workout : w));
+          setEditingWorkout(null);
+        }
       } else {
         // Save new workout to database
         const response = await fetch('/api/workouts', {
