@@ -360,11 +360,7 @@ export function AuthForm({ onAuthSuccess }: AuthFormProps) {
           </Tabs>
         </Card>
 
-        <div className="text-center">
-          <p className="text-xs text-muted-foreground">
-            Secure authentication powered by JWT tokens
-          </p>
-        </div>
+
       </div>
     </div>
   );
