@@ -34,10 +34,14 @@ export async function verifySession(token: string): Promise<{ userId: string; em
 
 export async function setSessionCookie(token: string) {
   const cookieStore = await cookies();
+  
+  // In development, use 'lax' for sameSite. In production with HTTPS, use 'none'
+  const isProduction = process.env.NODE_ENV === 'production';
+  
   cookieStore.set(COOKIE_NAME, token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'none', // Changed from 'lax' to 'none' for better mobile compatibility
+    secure: isProduction,
+    sameSite: isProduction ? 'none' : 'lax', // Use 'lax' in dev, 'none' in production
     maxAge: 60 * 60 * 24 * 7, // 7 days
     path: '/',
   });
