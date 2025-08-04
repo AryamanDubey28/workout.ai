@@ -15,8 +15,8 @@ export function DeleteConfirmDialog({ isOpen, workoutName, onConfirm, onCancel }
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <Card className="w-full max-w-md mx-auto animate-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-backdrop-in">
+      <Card className="w-full max-w-md mx-auto animate-modal-in border-border/50 shadow-2xl shadow-black/25">
         <CardHeader className="pb-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -29,7 +29,7 @@ export function DeleteConfirmDialog({ isOpen, workoutName, onConfirm, onCancel }
               variant="ghost"
               size="sm"
               onClick={onCancel}
-              className="h-8 w-8 p-0"
+              className="h-8 w-8 p-0 interactive-scale"
             >
               <X className="h-4 w-4" />
             </Button>
@@ -49,14 +49,14 @@ export function DeleteConfirmDialog({ isOpen, workoutName, onConfirm, onCancel }
             <Button
               variant="outline"
               onClick={onCancel}
-              className="flex-1"
+              className="flex-1 interactive-scale hover:bg-primary/5 hover:border-primary/30 hover:text-primary transition-all duration-200"
             >
               Cancel
             </Button>
             <Button
               variant="destructive"
               onClick={onConfirm}
-              className="flex-1"
+              className="flex-1 interactive-scale hover:shadow-lg hover:shadow-destructive/25 transition-all duration-200"
             >
               Delete Workout
             </Button>
