@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Dumbbell, Plus, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -21,28 +21,7 @@ export default function Home() {
   const [editingWorkout, setEditingWorkout] = useState<Workout | null>(null);
   const [workoutToDelete, setWorkoutToDelete] = useState<Workout | null>(null);
 
-  // Check authentication status
-  useEffect(() => {
-    checkAuth();
-  }, []);
-
-  const checkAuth = async () => {
-    try {
-      const response = await fetch('/api/auth/me');
-      if (response.ok) {
-        const data = await response.json();
-        setUser(data.user);
-        // Load workouts after successful authentication
-        await loadWorkouts();
-      }
-    } catch (error) {
-      console.error('Auth check failed:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const loadWorkouts = async () => {
+  const loadWorkouts = useCallback(async () => {
     try {
       const response = await fetch('/api/workouts');
       if (response.ok) {
@@ -61,7 +40,28 @@ export default function Home() {
     } catch (error) {
       console.error('Error loading workouts:', error);
     }
-  };
+  }, []);
+
+  const checkAuth = useCallback(async () => {
+    try {
+      const response = await fetch('/api/auth/me');
+      if (response.ok) {
+        const data = await response.json();
+        setUser(data.user);
+        // Load workouts after successful authentication
+        await loadWorkouts();
+      }
+    } catch (error) {
+      console.error('Auth check failed:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [loadWorkouts]);
+
+  // Check authentication status
+  useEffect(() => {
+    checkAuth();
+  }, [checkAuth]);
 
   const handleAuthSuccess = () => {
     checkAuth();
