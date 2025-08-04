@@ -201,10 +201,20 @@ export default function Home() {
   // Show loading spinner
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="min-h-screen bg-background flex items-center justify-center animate-fade-in-blur">
         <div className="text-center">
-          <Dumbbell className="h-8 w-8 text-primary mx-auto mb-2 animate-pulse" />
-          <p className="text-muted-foreground">Loading...</p>
+          <div className="relative">
+            <Dumbbell className="h-8 w-8 text-primary mx-auto mb-4 animate-gentle-bounce" />
+            <div className="absolute inset-0 animate-pulse-ring">
+              <Dumbbell className="h-8 w-8 text-primary/30 mx-auto" />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <p className="text-muted-foreground animate-slide-up">Loading your workouts...</p>
+            <div className="w-32 h-1 bg-muted rounded-full mx-auto overflow-hidden">
+              <div className="h-full bg-primary animate-shimmer"></div>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -218,9 +228,9 @@ export default function Home() {
   // Show user profile if requested
   if (showProfile) {
     return (
-      <div className="min-h-screen bg-background">
+      <div className="min-h-screen bg-background animate-fade-in-blur">
         {/* Header */}
-        <header className="border-b">
+        <header className="border-b animate-slide-down">
           <div className="container mx-auto px-4 py-4 flex justify-between items-center">
             <div className="flex items-center space-x-2">
               <Dumbbell className="h-8 w-8 text-primary" />
@@ -230,6 +240,7 @@ export default function Home() {
               <Button 
                 variant="ghost" 
                 onClick={() => setShowProfile(false)}
+                className="interactive-scale"
               >
                 Back to Workouts
               </Button>
@@ -240,16 +251,18 @@ export default function Home() {
 
         {/* Profile Content */}
         <main className="container mx-auto px-4 py-6 sm:py-8 max-w-md">
-          <UserProfile user={user} onLogout={handleLogout} />
+          <div className="animate-slide-up animation-delay-150">
+            <UserProfile user={user} onLogout={handleLogout} />
+          </div>
         </main>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background animate-fade-in-blur">
       {/* Header */}
-      <header className="border-b">
+      <header className="border-b animate-slide-down">
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
           <div className="flex items-center space-x-2">
             <Dumbbell className="h-8 w-8 text-primary" />
@@ -260,7 +273,7 @@ export default function Home() {
               variant="ghost" 
               size="sm"
               onClick={() => setShowProfile(true)}
-              className="flex items-center gap-2"
+              className="flex items-center gap-2 interactive-scale"
             >
               <User className="h-4 w-4" />
               {user.name}
@@ -281,14 +294,14 @@ export default function Home() {
         ) : (
           <>
             {/* Header with Add Button */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 sm:mb-8">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 sm:mb-8 animate-slide-up">
               <div>
                 <h2 className="text-2xl sm:text-3xl font-bold">My Workouts</h2>
                 <p className="text-muted-foreground text-sm sm:text-base">Track and organize your fitness journey</p>
               </div>
               <Button
                 onClick={handleNewWorkout}
-                className="flex items-center gap-2 self-start sm:self-auto"
+                className="flex items-center gap-2 self-start sm:self-auto interactive-scale hover:shadow-lg hover:shadow-primary/25 transition-all duration-200"
                 size="lg"
               >
                 <Plus className="h-4 w-4" />
@@ -298,21 +311,23 @@ export default function Home() {
 
             {/* Workouts Grid */}
             {workouts.length === 0 ? (
-              <div className="text-center py-12 sm:py-16">
-                <div className="mx-auto w-20 h-20 sm:w-24 sm:h-24 bg-muted rounded-full flex items-center justify-center mb-4">
+              <div className="text-center py-12 sm:py-16 animate-slide-up animation-delay-150">
+                <div className="mx-auto w-20 h-20 sm:w-24 sm:h-24 bg-muted rounded-full flex items-center justify-center mb-4 animate-scale-in animation-delay-300">
                   <Dumbbell className="h-10 w-10 sm:h-12 sm:w-12 text-muted-foreground" />
                 </div>
-                <h3 className="text-lg sm:text-xl font-semibold mb-2">No workouts yet</h3>
-                <p className="text-muted-foreground mb-4 text-sm sm:text-base px-4">
+                <h3 className="text-lg sm:text-xl font-semibold mb-2 animate-slide-up animation-delay-500">No workouts yet</h3>
+                <p className="text-muted-foreground mb-4 text-sm sm:text-base px-4 animate-slide-up animation-delay-500">
                   Start your fitness journey by creating your first workout
                 </p>
-                <Button onClick={handleNewWorkout} className="flex items-center gap-2" size="lg">
-                  <Plus className="h-4 w-4" />
-                  Create Your First Workout
-                </Button>
+                <div className="animate-slide-up animation-delay-500">
+                  <Button onClick={handleNewWorkout} className="flex items-center gap-2 interactive-scale hover:shadow-lg hover:shadow-primary/25 transition-all duration-200" size="lg">
+                    <Plus className="h-4 w-4" />
+                    Create Your First Workout
+                  </Button>
+                </div>
               </div>
             ) : (
-              <div className="grid gap-3 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid gap-3 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3 stagger-children">
                 {workouts.map((workout) => (
                   <WorkoutCard
                     key={workout.id}

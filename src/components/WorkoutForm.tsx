@@ -143,11 +143,11 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
   return (
     /* Modal Backdrop */
     <div 
-      className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-backdrop-in"
       onClick={handleCancel}
     >
       <Card 
-        className="w-full max-w-5xl mx-auto max-h-[90vh] overflow-y-auto"
+        className="w-full max-w-5xl mx-auto max-h-[90vh] overflow-y-auto animate-modal-in border-border/50 shadow-2xl shadow-black/25"
         onClick={(e) => e.stopPropagation()} // Prevent backdrop click when clicking on the card
       >
         <CardHeader className="space-y-4">
@@ -165,12 +165,12 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
               </div>
             </div>
             <div className="flex gap-2">
-                          <Button
-              variant="outline"
-              size="sm"
-              onClick={handleCancel}
-              className="flex items-center gap-2"
-            >
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleCancel}
+                className="flex items-center gap-2 interactive-scale hover:bg-destructive/5 hover:border-destructive/20 hover:text-destructive transition-all duration-200"
+              >
                 <X className="h-4 w-4" />
                 <span className="hidden sm:inline">Cancel</span>
               </Button>
@@ -178,7 +178,7 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
                 size="sm"
                 onClick={handleSave}
                 disabled={!canSave}
-                className="flex items-center gap-2"
+                className="flex items-center gap-2 interactive-scale hover:shadow-lg hover:shadow-primary/25 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Save className="h-4 w-4" />
                 <span className="hidden sm:inline">Save</span>
@@ -216,9 +216,9 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
               type="button"
               variant="outline"
               onClick={addExercise}
-              className="w-full border-dashed py-6 text-base hover:bg-primary/5"
+              className="w-full border-dashed py-6 text-base hover:bg-primary/5 hover:border-primary/30 hover:text-primary transition-all duration-200 interactive-scale group"
             >
-              <Plus className="h-5 w-5 mr-2" />
+              <Plus className="h-5 w-5 mr-2 transition-transform duration-200 group-hover:rotate-90" />
               Add Exercise
             </Button>
             {exercises.length > 1 && (
@@ -232,8 +232,8 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
 
       {/* Confirmation Dialog */}
       {showConfirmDialog && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={handleCancelExit}>
-          <Card className="w-full max-w-md mx-auto animate-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-backdrop-in" onClick={handleCancelExit}>
+          <Card className="w-full max-w-md mx-auto animate-modal-in border-border/50 shadow-2xl shadow-black/25" onClick={(e) => e.stopPropagation()}>
             <CardHeader className="pb-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -246,7 +246,7 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
                   variant="ghost"
                   size="sm"
                   onClick={handleCancelExit}
-                  className="h-8 w-8 p-0"
+                  className="h-8 w-8 p-0 interactive-scale"
                 >
                   <X className="h-4 w-4" />
                 </Button>
@@ -263,14 +263,14 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
                 <Button
                   variant="outline"
                   onClick={handleCancelExit}
-                  className="flex-1"
+                  className="flex-1 interactive-scale hover:bg-primary/5 hover:border-primary/30 hover:text-primary transition-all duration-200"
                 >
                   Keep Editing
                 </Button>
                 <Button
                   variant="destructive"
                   onClick={handleConfirmExit}
-                  className="flex-1"
+                  className="flex-1 interactive-scale hover:shadow-lg hover:shadow-destructive/25 transition-all duration-200"
                 >
                   Exit Without Saving
                 </Button>
