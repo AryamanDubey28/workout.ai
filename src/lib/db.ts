@@ -37,6 +37,57 @@ export async function initDatabase() {
       CREATE INDEX IF NOT EXISTS workouts_user_id_idx ON workouts(user_id);
     `;
 
+    // Create exercise_patterns table for autocomplete
+    await sql`
+      CREATE TABLE IF NOT EXISTS exercise_patterns (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        canonical_name VARCHAR(255) NOT NULL,
+        variations JSONB NOT NULL DEFAULT '[]',
+        last_weight VARCHAR(50),
+        last_sets INTEGER,
+        last_reps INTEGER,
+        last_effective_reps_max INTEGER,
+        last_effective_reps_target INTEGER,
+        use_effective_reps BOOLEAN DEFAULT FALSE,
+        usage_count INTEGER DEFAULT 1,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+    `;
+
+    // Create indexes for exercise patterns
+    await sql`
+      CREATE INDEX IF NOT EXISTS exercise_patterns_user_id_idx ON exercise_patterns(user_id);
+    `;
+    
+    await sql`
+      CREATE INDEX IF NOT EXISTS exercise_patterns_canonical_name_idx ON exercise_patterns(canonical_name);
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS exercise_patterns_usage_count_idx ON exercise_patterns(usage_count DESC);
+    `;
+
+    // Create common_exercises table for seed data
+    await sql`
+      CREATE TABLE IF NOT EXISTS common_exercises (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name VARCHAR(255) UNIQUE NOT NULL,
+        category VARCHAR(100),
+        aliases JSONB DEFAULT '[]',
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS common_exercises_name_idx ON common_exercises(name);
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS common_exercises_category_idx ON common_exercises(category);
+    `;
+
     console.log('Database initialized successfully');
   } catch (error) {
     console.error('Error initializing database:', error);
@@ -139,6 +190,213 @@ export async function emailExists(email: string): Promise<boolean> {
   } catch (error) {
     console.error('Error checking email existence:', error);
     return false;
+  }
+}
+
+// ===== EXERCISE PATTERN FUNCTIONS =====
+
+// Create or update exercise pattern
+export async function createOrUpdateExercisePattern(
+  userId: string, 
+  exerciseName: string, 
+  exerciseData: {
+    weight?: string;
+    sets?: number;
+    reps?: number;
+    useEffectiveReps?: boolean;
+    effectiveRepsMax?: number;
+    effectiveRepsTarget?: number;
+  }
+): Promise<void> {
+  try {
+    // First, try to find existing pattern
+    const existing = await sql`
+      SELECT id, variations, usage_count
+      FROM exercise_patterns
+      WHERE user_id = ${userId} 
+      AND (
+        canonical_name ILIKE ${exerciseName} 
+        OR variations::text ILIKE ${`%"${exerciseName}"%`}
+      )
+      LIMIT 1;
+    `;
+
+    if (existing.rows.length > 0) {
+      // Update existing pattern
+      const pattern = existing.rows[0];
+      const variations = Array.isArray(pattern.variations) ? pattern.variations : [];
+      
+      // Add new variation if not already present
+      if (!variations.some((v: string) => v.toLowerCase() === exerciseName.toLowerCase())) {
+        variations.push(exerciseName);
+      }
+
+      await sql`
+        UPDATE exercise_patterns
+        SET 
+          last_weight = ${exerciseData.weight || null},
+          last_sets = ${exerciseData.sets || null},
+          last_reps = ${exerciseData.reps || null},
+          last_effective_reps_max = ${exerciseData.effectiveRepsMax || null},
+          last_effective_reps_target = ${exerciseData.effectiveRepsTarget || null},
+          use_effective_reps = ${exerciseData.useEffectiveReps || false},
+          variations = ${JSON.stringify(variations)},
+          usage_count = ${pattern.usage_count + 1},
+          updated_at = NOW()
+        WHERE id = ${pattern.id};
+      `;
+    } else {
+      // Create new pattern
+      await sql`
+        INSERT INTO exercise_patterns (
+          user_id, canonical_name, variations, last_weight, last_sets, last_reps,
+          last_effective_reps_max, last_effective_reps_target, use_effective_reps,
+          usage_count, created_at, updated_at
+        )
+        VALUES (
+          ${userId}, ${exerciseName}, ${JSON.stringify([exerciseName])},
+          ${exerciseData.weight || null}, ${exerciseData.sets || null}, ${exerciseData.reps || null},
+          ${exerciseData.effectiveRepsMax || null}, ${exerciseData.effectiveRepsTarget || null},
+          ${exerciseData.useEffectiveReps || false}, 1, NOW(), NOW()
+        );
+      `;
+    }
+  } catch (error) {
+    console.error('Error creating/updating exercise pattern:', error);
+  }
+}
+
+// Get exercise suggestions for autocomplete
+export async function getExerciseSuggestions(userId: string, query: string, limit: number = 5): Promise<Array<{
+  name: string;
+  lastWeight?: string;
+  lastSets?: number;
+  lastReps?: number;
+  lastEffectiveRepsMax?: number;
+  lastEffectiveRepsTarget?: number;
+  useEffectiveReps?: boolean;
+  usageCount: number;
+}>> {
+  try {
+    if (!query || query.length < 1) return [];
+
+    // First get user's personal exercise patterns
+    const userPatternsResult = await sql`
+      SELECT 
+        canonical_name,
+        variations,
+        last_weight,
+        last_sets,
+        last_reps,
+        last_effective_reps_max,
+        last_effective_reps_target,
+        use_effective_reps,
+        usage_count,
+        'user' as source
+      FROM exercise_patterns
+      WHERE user_id = ${userId}
+      AND (
+        canonical_name ILIKE ${`%${query}%`}
+        OR variations::text ILIKE ${`%${query}%`}
+      )
+      ORDER BY usage_count DESC, updated_at DESC;
+    `;
+
+    // Then get common exercises if we need more suggestions
+    const commonExercisesResult = await sql`
+      SELECT 
+        name as canonical_name,
+        aliases as variations,
+        null as last_weight,
+        null as last_sets,
+        null as last_reps,
+        null as last_effective_reps_max,
+        null as last_effective_reps_target,
+        false as use_effective_reps,
+        0 as usage_count,
+        'common' as source
+      FROM common_exercises
+      WHERE name ILIKE ${`%${query}%`}
+      OR aliases::text ILIKE ${`%${query}%`}
+      ORDER BY name;
+    `;
+
+    // Combine results, prioritizing user patterns
+    const userSuggestions = userPatternsResult.rows.map(row => {
+      const variations = Array.isArray(row.variations) ? row.variations : [row.canonical_name];
+      const queryLower = query.toLowerCase();
+      
+      // Find the best matching variation
+      let bestMatch = row.canonical_name;
+      for (const variation of variations) {
+        if (variation.toLowerCase() === queryLower) {
+          bestMatch = variation;
+          break;
+        } else if (variation.toLowerCase().startsWith(queryLower)) {
+          bestMatch = variation;
+        } else if (bestMatch === row.canonical_name && variation.toLowerCase().includes(queryLower)) {
+          bestMatch = variation;
+        }
+      }
+
+      return {
+        name: bestMatch,
+        lastWeight: row.last_weight,
+        lastSets: row.last_sets,
+        lastReps: row.last_reps,
+        lastEffectiveRepsMax: row.last_effective_reps_max,
+        lastEffectiveRepsTarget: row.last_effective_reps_target,
+        useEffectiveReps: row.use_effective_reps,
+        usageCount: row.usage_count,
+      };
+    });
+
+    // Add common exercises if we have space and they're not already in user patterns
+    const userExerciseNames = new Set(userSuggestions.map(s => s.name.toLowerCase()));
+    const commonSuggestions = commonExercisesResult.rows
+      .filter(row => !userExerciseNames.has(row.canonical_name.toLowerCase()))
+      .map(row => ({
+        name: row.canonical_name,
+        lastWeight: undefined,
+        lastSets: undefined,
+        lastReps: undefined,
+        lastEffectiveRepsMax: undefined,
+        lastEffectiveRepsTarget: undefined,
+        useEffectiveReps: false,
+        usageCount: 0,
+      }));
+
+    // Combine and limit results
+    const allSuggestions = [...userSuggestions, ...commonSuggestions];
+    return allSuggestions.slice(0, limit);
+  } catch (error) {
+    console.error('Error getting exercise suggestions:', error);
+    return [];
+  }
+}
+
+// Get all unique exercise names for a user
+export async function getUserExerciseNames(userId: string): Promise<string[]> {
+  try {
+    const result = await sql`
+      SELECT DISTINCT canonical_name, variations
+      FROM exercise_patterns
+      WHERE user_id = ${userId}
+      ORDER BY canonical_name;
+    `;
+
+    const names = new Set<string>();
+    result.rows.forEach(row => {
+      names.add(row.canonical_name);
+      if (Array.isArray(row.variations)) {
+        row.variations.forEach((variation: string) => names.add(variation));
+      }
+    });
+
+    return Array.from(names).sort();
+  } catch (error) {
+    console.error('Error getting user exercise names:', error);
+    return [];
   }
 }
 

@@ -5,6 +5,7 @@ import { Workout, Exercise } from '@/types/workout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ExerciseRow } from './ExerciseRow';
+import { useExerciseCache } from '@/hooks/useExerciseCache';
 import { Plus, Save, X, AlertTriangle } from 'lucide-react';
 
 interface WorkoutFormProps {
@@ -27,6 +28,7 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
   ];
   
   const [exercises, setExercises] = useState<Exercise[]>(initialExercises);
+  const { invalidateCache } = useExerciseCache();
   
   // Auto-expand the first exercise if it's a new workout
   const [expandedExerciseId, setExpandedExerciseId] = useState<string | null>(
@@ -109,16 +111,48 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
     setExercises(exercises.filter((_, i) => i !== index));
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    const filteredExercises = exercises.filter(ex => ex.name.trim());
+    
     const workoutToSave: Workout = {
       id: workout?.id || crypto.randomUUID(),
       name: name.trim() || undefined,
       date: workout?.date || new Date(),
-      exercises: exercises.filter(ex => ex.name.trim()), // Only save exercises with names
+      exercises: filteredExercises, // Only save exercises with names
       createdAt: workout?.createdAt || new Date(),
       updatedAt: new Date(),
     };
+
+    // Track exercise patterns for autocomplete
+    try {
+      for (const exercise of filteredExercises) {
+        await fetch('/api/exercises/track', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            exerciseName: exercise.name,
+            exerciseData: {
+              weight: exercise.weight,
+              sets: exercise.sets,
+              reps: exercise.reps,
+              useEffectiveReps: exercise.useEffectiveReps,
+              effectiveRepsMax: exercise.effectiveRepsMax,
+              effectiveRepsTarget: exercise.effectiveRepsTarget,
+            },
+          }),
+        });
+      }
+    } catch (error) {
+      console.error('Error tracking exercise patterns:', error);
+      // Don't fail the save if tracking fails
+    }
+
     onSave(workoutToSave);
+    
+    // Invalidate exercise cache so new patterns are immediately available
+    invalidateCache();
   };
 
   const handleCancel = () => {

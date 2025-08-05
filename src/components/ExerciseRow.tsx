@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Exercise } from '@/types/workout';
 import { Button } from '@/components/ui/button';
+import { Autocomplete } from '@/components/ui/autocomplete';
 import { Trash2, ChevronDown, ChevronRight, Edit3, Dumbbell } from 'lucide-react';
 
 interface ExerciseRowProps {
@@ -19,6 +20,47 @@ export function ExerciseRow({ exercise, onChange, onDelete, isExpanded = false, 
       ...exercise,
       [field]: value,
     });
+  };
+
+  const handleExerciseSelect = (suggestion: any) => {
+    // Auto-fill exercise data from last used values
+    const updatedExercise = {
+      ...exercise,
+      name: suggestion.name,
+    };
+
+    // Fill in last used data if available
+    if (suggestion.lastWeight) {
+      updatedExercise.weight = suggestion.lastWeight;
+    }
+    
+    if (suggestion.useEffectiveReps !== undefined) {
+      updatedExercise.useEffectiveReps = suggestion.useEffectiveReps;
+      
+      if (suggestion.useEffectiveReps) {
+        if (suggestion.lastEffectiveRepsMax) {
+          updatedExercise.effectiveRepsMax = suggestion.lastEffectiveRepsMax;
+        }
+        if (suggestion.lastEffectiveRepsTarget) {
+          updatedExercise.effectiveRepsTarget = suggestion.lastEffectiveRepsTarget;
+        }
+        // Clear conflicting fields
+        updatedExercise.sets = undefined;
+        updatedExercise.reps = undefined;
+      } else {
+        if (suggestion.lastSets) {
+          updatedExercise.sets = suggestion.lastSets;
+        }
+        if (suggestion.lastReps) {
+          updatedExercise.reps = suggestion.lastReps;
+        }
+        // Clear conflicting fields
+        updatedExercise.effectiveRepsMax = undefined;
+        updatedExercise.effectiveRepsTarget = undefined;
+      }
+    }
+
+    onChange(updatedExercise);
   };
 
   const toggleEffectiveReps = () => {
@@ -140,12 +182,12 @@ export function ExerciseRow({ exercise, onChange, onDelete, isExpanded = false, 
         <div className="space-y-4">
           {/* Exercise Name */}
           <div>
-            <input
-              type="text"
-              placeholder="Exercise name"
+            <Autocomplete
               value={exercise.name}
-              onChange={(e) => handleInputChange('name', e.target.value)}
-              className="w-full px-4 py-3 text-base border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all duration-200 hover:border-border/70"
+              onChange={(value) => handleInputChange('name', value)}
+              onSelect={handleExerciseSelect}
+              placeholder="Exercise name"
+              className="transition-all duration-200 hover:border-border/70"
             />
           </div>
 
