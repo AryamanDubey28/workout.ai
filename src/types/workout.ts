@@ -4,6 +4,7 @@ export interface Exercise {
   weight: string | 'BW'; // Can be a number as string or 'BW' for bodyweight
   sets?: number;
   reps?: number;
+  repsPerSet?: number[]; // New: array of reps for each set
   useEffectiveReps: boolean;
   effectiveRepsMax?: number;
   effectiveRepsTarget?: number;

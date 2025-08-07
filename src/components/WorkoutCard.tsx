@@ -24,9 +24,24 @@ export function WorkoutCard({ workout, onClick, onDelete }: WorkoutCardProps) {
       const target = exercise.effectiveRepsTarget || 0;
       return `${exercise.name} ${weight} - ${max}/${target} ER`.trim();
     } else {
-      const sets = exercise.sets || 0;
-      const reps = exercise.reps || 0;
-      return `${exercise.name} ${weight} - ${sets}x${reps}`.trim();
+      // Smart summary logic for sets and reps
+      if (exercise.repsPerSet && exercise.repsPerSet.length > 0) {
+        const sets = exercise.repsPerSet.length;
+        const allSameReps = exercise.repsPerSet.every((reps: number) => reps === exercise.repsPerSet[0]);
+        
+        if (allSameReps) {
+          // All sets have same reps: "3x8"
+          return `${exercise.name} ${weight} - ${sets}x${exercise.repsPerSet[0]}`.trim();
+        } else {
+          // Different reps per set: "8, 7, 6"
+          return `${exercise.name} ${weight} - ${exercise.repsPerSet.join(', ')}`.trim();
+        }
+      } else {
+        // Fallback to old format if using old data structure
+        const sets = exercise.sets || 0;
+        const reps = exercise.reps || 0;
+        return `${exercise.name} ${weight} - ${sets}x${reps}`.trim();
+      }
     }
   };
 

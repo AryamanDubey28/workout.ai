@@ -14,6 +14,150 @@ interface ExerciseRowProps {
   onToggleExpand?: () => void;
 }
 
+interface SetsAndRepsInputsProps {
+  exercise: Exercise;
+  onChange: (exercise: Exercise) => void;
+}
+
+function SetsAndRepsInputs({ exercise, onChange }: SetsAndRepsInputsProps) {
+  const handleSetsChange = (newSets: number | undefined) => {
+    if (!newSets || newSets < 1) {
+      // Clear everything if sets is 0 or undefined
+      onChange({
+        ...exercise,
+        sets: undefined,
+        reps: undefined,
+        repsPerSet: undefined,
+      });
+      return;
+    }
+
+    // Initialize repsPerSet array based on number of sets
+    const currentRepsPerSet = exercise.repsPerSet || [];
+    const newRepsPerSet: number[] = [];
+    
+    for (let i = 0; i < newSets; i++) {
+      // Preserve existing reps if available, otherwise use the general reps value or 0
+      newRepsPerSet[i] = currentRepsPerSet[i] || exercise.reps || 0;
+    }
+
+    onChange({
+      ...exercise,
+      sets: newSets,
+      repsPerSet: newRepsPerSet,
+      // Keep the general reps for backwards compatibility but it won't be used in display
+      reps: exercise.reps,
+    });
+  };
+
+  const handleRepsForSetChange = (setIndex: number, reps: number | undefined) => {
+    const currentRepsPerSet = exercise.repsPerSet || [];
+    const newRepsPerSet = [...currentRepsPerSet];
+    newRepsPerSet[setIndex] = reps || 0;
+
+    onChange({
+      ...exercise,
+      repsPerSet: newRepsPerSet,
+    });
+  };
+
+  const handleGeneralRepsChange = (reps: number | undefined) => {
+    if (!exercise.sets || exercise.sets < 1) {
+      // If no sets defined, just update the general reps field
+      onChange({
+        ...exercise,
+        reps: reps,
+      });
+      return;
+    }
+
+    // Apply the reps to all sets
+    const newRepsPerSet = new Array(exercise.sets).fill(reps || 0);
+    
+    onChange({
+      ...exercise,
+      reps: reps,
+      repsPerSet: newRepsPerSet,
+    });
+  };
+
+  // If no sets defined or sets is 0, show the simple two-input layout
+  if (!exercise.sets || exercise.sets < 1) {
+    return (
+      <>
+        <div>
+          <input
+            type="number"
+            placeholder="Sets"
+            value={exercise.sets || ''}
+            onChange={(e) => handleSetsChange(parseInt(e.target.value) || undefined)}
+            className="w-full px-4 py-3 text-base border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-12 transition-all duration-200 hover:border-border/70"
+          />
+          <div className="text-xs text-muted-foreground mt-1.5 px-1">Sets</div>
+        </div>
+        <div>
+          <input
+            type="number"
+            placeholder="Reps"
+            value={exercise.reps || ''}
+            onChange={(e) => handleGeneralRepsChange(parseInt(e.target.value) || undefined)}
+            className="w-full px-4 py-3 text-base border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-12 transition-all duration-200 hover:border-border/70"
+          />
+          <div className="text-xs text-muted-foreground mt-1.5 px-1">Reps</div>
+        </div>
+      </>
+    );
+  }
+
+  // Show expanded view with individual set inputs
+  return (
+    <div className="space-y-4">
+      {/* Sets input row */}
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <input
+            type="number"
+            placeholder="Sets"
+            value={exercise.sets || ''}
+            onChange={(e) => handleSetsChange(parseInt(e.target.value) || undefined)}
+            className="w-full px-4 py-3 text-base border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-12 transition-all duration-200 hover:border-border/70"
+          />
+          <div className="text-xs text-muted-foreground mt-1.5 px-1">Sets</div>
+        </div>
+        <div>
+          <input
+            type="number"
+            placeholder="Apply to all"
+            value={exercise.reps || ''}
+            onChange={(e) => handleGeneralRepsChange(parseInt(e.target.value) || undefined)}
+            className="w-full px-4 py-3 text-base border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-12 transition-all duration-200 hover:border-border/70"
+          />
+          <div className="text-xs text-muted-foreground mt-1.5 px-1">Quick fill all sets</div>
+        </div>
+      </div>
+
+      {/* Individual set reps inputs */}
+      <div className="space-y-2">
+        <div className="text-sm font-medium text-muted-foreground">Reps per set:</div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+          {Array.from({ length: exercise.sets }, (_, index) => (
+            <div key={index} className="space-y-1">
+              <input
+                type="number"
+                placeholder="0"
+                value={exercise.repsPerSet?.[index] || ''}
+                onChange={(e) => handleRepsForSetChange(index, parseInt(e.target.value) || undefined)}
+                className="w-full px-3 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-10 transition-all duration-200 hover:border-border/70"
+              />
+              <div className="text-xs text-muted-foreground text-center">Set {index + 1}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ExerciseRow({ exercise, onChange, onDelete, isExpanded = false, onToggleExpand }: ExerciseRowProps) {
   const handleInputChange = (field: keyof Exercise, value: any) => {
     onChange({
@@ -83,9 +227,24 @@ export function ExerciseRow({ exercise, onChange, onDelete, isExpanded = false, 
       const target = exercise.effectiveRepsTarget || '?';
       return `${weight} - ${max}/${target} ER`.trim();
     } else {
-      const sets = exercise.sets || '?';
-      const reps = exercise.reps || '?';
-      return `${weight} - ${sets}x${reps}`.trim();
+      // Smart summary logic for sets and reps
+      if (exercise.repsPerSet && exercise.repsPerSet.length > 0) {
+        const sets = exercise.repsPerSet.length;
+        const allSameReps = exercise.repsPerSet.every(reps => reps === exercise.repsPerSet![0]);
+        
+        if (allSameReps) {
+          // All sets have same reps: "3x8"
+          return `${weight} - ${sets}x${exercise.repsPerSet[0]}`.trim();
+        } else {
+          // Different reps per set: "8, 7, 6"
+          return `${weight} - ${exercise.repsPerSet.join(', ')}`.trim();
+        }
+      } else {
+        // Fallback to old format if using old data structure
+        const sets = exercise.sets || '?';
+        const reps = exercise.reps || '?';
+        return `${weight} - ${sets}x${reps}`.trim();
+      }
     }
   };
 
@@ -262,28 +421,10 @@ export function ExerciseRow({ exercise, onChange, onDelete, isExpanded = false, 
                   </div>
                 </>
               ) : (
-                <>
-                  <div>
-                    <input
-                      type="number"
-                      placeholder="Sets"
-                      value={exercise.sets || ''}
-                      onChange={(e) => handleInputChange('sets', parseInt(e.target.value) || undefined)}
-                      className="w-full px-4 py-3 text-base border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-12 transition-all duration-200 hover:border-border/70"
-                    />
-                    <div className="text-xs text-muted-foreground mt-1.5 px-1">Sets</div>
-                  </div>
-                  <div>
-                    <input
-                      type="number"
-                      placeholder="Reps"
-                      value={exercise.reps || ''}
-                      onChange={(e) => handleInputChange('reps', parseInt(e.target.value) || undefined)}
-                      className="w-full px-4 py-3 text-base border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-12 transition-all duration-200 hover:border-border/70"
-                    />
-                    <div className="text-xs text-muted-foreground mt-1.5 px-1">Reps</div>
-                  </div>
-                </>
+                <SetsAndRepsInputs 
+                  exercise={exercise} 
+                  onChange={onChange}
+                />
               )}
             </div>
           </div>
