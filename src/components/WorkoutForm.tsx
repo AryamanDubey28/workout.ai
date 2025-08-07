@@ -64,6 +64,7 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
           exercise.weight !== originalExercise.weight ||
           exercise.sets !== originalExercise.sets ||
           exercise.reps !== originalExercise.reps ||
+          JSON.stringify(exercise.repsPerSet) !== JSON.stringify(originalExercise.repsPerSet) ||
           exercise.useEffectiveReps !== originalExercise.useEffectiveReps ||
           exercise.effectiveRepsMax !== originalExercise.effectiveRepsMax ||
           exercise.effectiveRepsTarget !== originalExercise.effectiveRepsTarget
@@ -78,6 +79,7 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
           exercise.weight.trim() !== '' ||
           (exercise.sets && exercise.sets > 0) ||
           (exercise.reps && exercise.reps > 0) ||
+          (exercise.repsPerSet && exercise.repsPerSet.length > 0 && exercise.repsPerSet.some(r => r > 0)) ||
           (exercise.effectiveRepsMax && exercise.effectiveRepsMax > 0) ||
           (exercise.effectiveRepsTarget && exercise.effectiveRepsTarget > 0)
         )
@@ -137,6 +139,7 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
               weight: exercise.weight,
               sets: exercise.sets,
               reps: exercise.reps,
+              repsPerSet: exercise.repsPerSet,
               useEffectiveReps: exercise.useEffectiveReps,
               effectiveRepsMax: exercise.effectiveRepsMax,
               effectiveRepsTarget: exercise.effectiveRepsTarget,
