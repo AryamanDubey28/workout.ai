@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
       }, {});
       
       const mostCommonReps = Object.entries(repCounts)
-        .sort(([,a], [,b]) => b - a)[0]?.[0];
+        .sort(([,a], [,b]) => (b as number) - (a as number))[0]?.[0];
       
       if (mostCommonReps) {
         processedExerciseData.reps = parseInt(mostCommonReps);
