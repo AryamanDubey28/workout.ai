@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Workout, Exercise } from '@/types/workout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -42,8 +42,43 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
   // ----- Draft autosave (localStorage) -----
   // Keyed by workout id for edits, or "new" for in-progress creation
   const draftStorageKey = `workout-ai-draft-${workout?.id ?? 'new'}`;
-  const saveTimeoutRef = useRef<number | null>(null);
-  const serverSaveTimeoutRef = useRef<number | null>(null);
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const serverSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Check for unsaved changes - memoized for stable reference
+  const checkForUnsavedChanges = useCallback(() => {
+    if (workout) {
+      if (name !== (workout.name || '')) return true;
+      if (exercises.length !== workout.exercises.length) return true;
+      return exercises.some((exercise, index) => {
+        const originalExercise = workout.exercises[index];
+        if (!originalExercise) return true;
+        return (
+          exercise.name !== originalExercise.name ||
+          exercise.weight !== originalExercise.weight ||
+          exercise.sets !== originalExercise.sets ||
+          exercise.reps !== originalExercise.reps ||
+          JSON.stringify(exercise.repsPerSet) !== JSON.stringify(originalExercise.repsPerSet) ||
+          exercise.useEffectiveReps !== originalExercise.useEffectiveReps ||
+          exercise.effectiveRepsMax !== originalExercise.effectiveRepsMax ||
+          exercise.effectiveRepsTarget !== originalExercise.effectiveRepsTarget
+        );
+      });
+    } else {
+      return (
+        name.trim() !== '' ||
+        exercises.some(exercise =>
+          exercise.name.trim() !== '' ||
+          exercise.weight.trim() !== '' ||
+          (exercise.sets && exercise.sets > 0) ||
+          (exercise.reps && exercise.reps > 0) ||
+          (exercise.repsPerSet && exercise.repsPerSet.length > 0 && exercise.repsPerSet.some(r => r > 0)) ||
+          (exercise.effectiveRepsMax && exercise.effectiveRepsMax > 0) ||
+          (exercise.effectiveRepsTarget && exercise.effectiveRepsTarget > 0)
+        )
+      );
+    }
+  }, [exercises, name, workout]);
 
   // Load draft on mount (if present). If editing, it will use the workout id key; if creating, uses "new" key.
   useEffect(() => {
@@ -85,8 +120,7 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
-    // @ts-ignore - window.setTimeout returns number in browser
-    saveTimeoutRef.current = window.setTimeout(persist, 400);
+    saveTimeoutRef.current = setTimeout(persist, 400);
 
     return () => {
       if (saveTimeoutRef.current) {
@@ -132,7 +166,7 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [name, exercises, draftStorageKey]);
+  }, [name, exercises, draftStorageKey, workout?.id, workout?.name, workout?.date]);
 
   const clearDraft = () => {
     try {
@@ -170,64 +204,19 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
     if (serverSaveTimeoutRef.current) {
       clearTimeout(serverSaveTimeoutRef.current);
     }
-    // @ts-ignore - window.setTimeout returns number in browser
-    serverSaveTimeoutRef.current = window.setTimeout(triggerServerSave, 1200);
+    serverSaveTimeoutRef.current = setTimeout(triggerServerSave, 1200);
 
     return () => {
       if (serverSaveTimeoutRef.current) {
         clearTimeout(serverSaveTimeoutRef.current);
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [name, exercises, workout?.id]);
+  }, [name, exercises, workout?.id, workout?.name, workout?.date, checkForUnsavedChanges]);
 
-  // Check for unsaved changes
+  // Keep a simple boolean for UI confirmations
   useEffect(() => {
-    const hasChanges = checkForUnsavedChanges();
-    setHasUnsavedChanges(hasChanges);
-  }, [name, exercises]);
-
-  const checkForUnsavedChanges = () => {
-    // If editing an existing workout
-    if (workout) {
-      // Check if name changed
-      if (name !== (workout.name || '')) return true;
-      
-      // Check if exercises changed (simplified check - could be more sophisticated)
-      if (exercises.length !== workout.exercises.length) return true;
-      
-      // Check if any exercise content changed
-      return exercises.some((exercise, index) => {
-        const originalExercise = workout.exercises[index];
-        if (!originalExercise) return true;
-        
-        return (
-          exercise.name !== originalExercise.name ||
-          exercise.weight !== originalExercise.weight ||
-          exercise.sets !== originalExercise.sets ||
-          exercise.reps !== originalExercise.reps ||
-          JSON.stringify(exercise.repsPerSet) !== JSON.stringify(originalExercise.repsPerSet) ||
-          exercise.useEffectiveReps !== originalExercise.useEffectiveReps ||
-          exercise.effectiveRepsMax !== originalExercise.effectiveRepsMax ||
-          exercise.effectiveRepsTarget !== originalExercise.effectiveRepsTarget
-        );
-      });
-    } else {
-      // For new workouts, check if any content has been entered
-      return (
-        name.trim() !== '' || 
-        exercises.some(exercise => 
-          exercise.name.trim() !== '' || 
-          exercise.weight.trim() !== '' ||
-          (exercise.sets && exercise.sets > 0) ||
-          (exercise.reps && exercise.reps > 0) ||
-          (exercise.repsPerSet && exercise.repsPerSet.length > 0 && exercise.repsPerSet.some(r => r > 0)) ||
-          (exercise.effectiveRepsMax && exercise.effectiveRepsMax > 0) ||
-          (exercise.effectiveRepsTarget && exercise.effectiveRepsTarget > 0)
-        )
-      );
-    }
-  };
+    setHasUnsavedChanges(checkForUnsavedChanges());
+  }, [checkForUnsavedChanges]);
 
   const addExercise = () => {
     const newExercise: Exercise = {

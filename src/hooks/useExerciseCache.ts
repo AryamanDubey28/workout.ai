@@ -29,28 +29,7 @@ export function useExerciseCache() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Load cache from localStorage on mount
-  useEffect(() => {
-    const cached = localStorage.getItem(CACHE_KEY);
-    if (cached) {
-      try {
-        const parsedCache = JSON.parse(cached);
-        const age = Date.now() - new Date(parsedCache.lastUpdated).getTime();
-        
-        // Use cache if it's fresh
-        if (age < CACHE_DURATION) {
-          setCache(parsedCache);
-          return;
-        }
-      } catch (e) {
-        console.warn('Failed to parse exercise cache:', e);
-      }
-    }
-    
-    // Cache is stale or doesn't exist, fetch fresh data
-    refreshCache();
-  }, []);
-
+  // Fetch and refresh cache from server
   const refreshCache = useCallback(async () => {
     setIsLoading(true);
     setError(null);
@@ -79,6 +58,28 @@ export function useExerciseCache() {
       setIsLoading(false);
     }
   }, []);
+
+  // Load cache from localStorage on mount
+  useEffect(() => {
+    const cached = localStorage.getItem(CACHE_KEY);
+    if (cached) {
+      try {
+        const parsedCache = JSON.parse(cached);
+        const age = Date.now() - new Date(parsedCache.lastUpdated).getTime();
+        
+        // Use cache if it's fresh
+        if (age < CACHE_DURATION) {
+          setCache(parsedCache);
+          return;
+        }
+      } catch (e) {
+        console.warn('Failed to parse exercise cache:', e);
+      }
+    }
+    
+    // Cache is stale or doesn't exist, fetch fresh data
+    refreshCache();
+  }, [refreshCache]);
 
   // Search exercises locally
   const searchExercises = useCallback((query: string, limit: number = 8): CachedExercise[] => {
