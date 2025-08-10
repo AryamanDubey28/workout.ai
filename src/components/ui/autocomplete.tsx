@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef, KeyboardEvent } from 'react';
+import React, { useState, useEffect, useRef, KeyboardEvent, useCallback } from 'react';
 import { ChevronDown, Clock, Dumbbell } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useExerciseCache } from '@/hooks/useExerciseCache';
@@ -39,14 +39,14 @@ export function Autocomplete({
   
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const debounceRef = useRef<NodeJS.Timeout | undefined>(undefined);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const isSelectingRef = useRef(false);
 
   // Use the exercise cache hook
   const { searchExercises, isCacheReady, isLoading: cacheLoading } = useExerciseCache();
 
   // Local search using cached data
-  const searchLocal = (query: string) => {
+  const searchLocal = useCallback((query: string) => {
     if (query.length < 1) {
       setSuggestions([]);
       return;
@@ -54,7 +54,7 @@ export function Autocomplete({
 
     const results = searchExercises(query, 8);
     setSuggestions(results);
-  };
+  }, [searchExercises]);
 
   // Debounced search
   useEffect(() => {
@@ -82,7 +82,7 @@ export function Autocomplete({
         clearTimeout(debounceRef.current);
       }
     };
-  }, [value, searchExercises]);
+  }, [value, searchLocal]);
 
   // Handle input change
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {

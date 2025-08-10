@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Workout, Exercise } from '@/types/workout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -39,26 +39,20 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
 
-  // Check for unsaved changes
-  useEffect(() => {
-    const hasChanges = checkForUnsavedChanges();
-    setHasUnsavedChanges(hasChanges);
-  }, [name, exercises]);
+  // ----- Draft autosave (localStorage) -----
+  // Keyed by workout id for edits, or "new" for in-progress creation
+  const draftStorageKey = `workout-ai-draft-${workout?.id ?? 'new'}`;
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const serverSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const checkForUnsavedChanges = () => {
-    // If editing an existing workout
+  // Check for unsaved changes - memoized for stable reference
+  const checkForUnsavedChanges = useCallback(() => {
     if (workout) {
-      // Check if name changed
       if (name !== (workout.name || '')) return true;
-      
-      // Check if exercises changed (simplified check - could be more sophisticated)
       if (exercises.length !== workout.exercises.length) return true;
-      
-      // Check if any exercise content changed
       return exercises.some((exercise, index) => {
         const originalExercise = workout.exercises[index];
         if (!originalExercise) return true;
-        
         return (
           exercise.name !== originalExercise.name ||
           exercise.weight !== originalExercise.weight ||
@@ -71,11 +65,10 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
         );
       });
     } else {
-      // For new workouts, check if any content has been entered
       return (
-        name.trim() !== '' || 
-        exercises.some(exercise => 
-          exercise.name.trim() !== '' || 
+        name.trim() !== '' ||
+        exercises.some(exercise =>
+          exercise.name.trim() !== '' ||
           exercise.weight.trim() !== '' ||
           (exercise.sets && exercise.sets > 0) ||
           (exercise.reps && exercise.reps > 0) ||
@@ -85,7 +78,145 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
         )
       );
     }
+  }, [exercises, name, workout]);
+
+  // Load draft on mount (if present). If editing, it will use the workout id key; if creating, uses "new" key.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(draftStorageKey);
+      if (raw) {
+        const draft = JSON.parse(raw);
+        if (typeof draft?.name === 'string') {
+          setName(draft.name);
+        }
+        if (Array.isArray(draft?.exercises)) {
+          setExercises(draft.exercises);
+          if (!workout && draft.exercises.length > 0 && draft.exercises[0]?.id) {
+            setExpandedExerciseId(draft.exercises[0].id);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load workout draft:', e);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftStorageKey]);
+
+  // Persist draft with a small debounce on every change
+  useEffect(() => {
+    const persist = () => {
+      try {
+        const draft = {
+          name,
+          exercises,
+          updatedAt: new Date().toISOString(),
+        };
+        localStorage.setItem(draftStorageKey, JSON.stringify(draft));
+      } catch (e) {
+        console.warn('Failed to save workout draft:', e);
+      }
+    };
+
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+    saveTimeoutRef.current = setTimeout(persist, 400);
+
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, [name, exercises, draftStorageKey]);
+
+  // Flush draft when the page becomes hidden (backgrounded)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        try {
+          const draft = {
+            name,
+            exercises,
+            updatedAt: new Date().toISOString(),
+          };
+          localStorage.setItem(draftStorageKey, JSON.stringify(draft));
+        } catch (e) {
+          // noop
+        }
+        // Also flush server autosave if editing (use keepalive fetch)
+        if (workout?.id) {
+          try {
+            const payload = {
+              name: name || workout.name || undefined,
+              date: workout.date, // keep original date when editing
+              exercises,
+            };
+            fetch(`/api/workouts/${workout.id}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+              credentials: 'include',
+              keepalive: true,
+            }).catch(() => {});
+          } catch (_) {
+            // noop
+          }
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [name, exercises, draftStorageKey, workout?.id, workout?.name, workout?.date]);
+
+  const clearDraft = () => {
+    try {
+      localStorage.removeItem(draftStorageKey);
+    } catch (_) {
+      // noop
+    }
   };
+
+  // Debounced server autosave when editing an existing workout
+  useEffect(() => {
+    if (!workout?.id) return;
+
+    const hasAnyContent = checkForUnsavedChanges();
+    if (!hasAnyContent) return;
+
+    const triggerServerSave = async () => {
+      try {
+        const payload = {
+          name: name || workout.name || undefined,
+          date: workout.date, // keep original date
+          exercises,
+        };
+        await fetch(`/api/workouts/${workout.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          credentials: 'include',
+        });
+      } catch (_) {
+        // silent failure; local draft still protects data
+      }
+    };
+
+    if (serverSaveTimeoutRef.current) {
+      clearTimeout(serverSaveTimeoutRef.current);
+    }
+    serverSaveTimeoutRef.current = setTimeout(triggerServerSave, 1200);
+
+    return () => {
+      if (serverSaveTimeoutRef.current) {
+        clearTimeout(serverSaveTimeoutRef.current);
+      }
+    };
+  }, [name, exercises, workout?.id, workout?.name, workout?.date, checkForUnsavedChanges]);
+
+  // Keep a simple boolean for UI confirmations
+  useEffect(() => {
+    setHasUnsavedChanges(checkForUnsavedChanges());
+  }, [checkForUnsavedChanges]);
 
   const addExercise = () => {
     const newExercise: Exercise = {
@@ -153,6 +284,8 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
     }
 
     onSave(workoutToSave);
+    // Clear any persisted draft on successful save
+    clearDraft();
     
     // Invalidate exercise cache so new patterns are immediately available
     invalidateCache();
@@ -162,12 +295,16 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
     if (hasUnsavedChanges) {
       setShowConfirmDialog(true);
     } else {
+      // Clear any draft when exiting without unsaved changes
+      clearDraft();
       onCancel();
     }
   };
 
   const handleConfirmExit = () => {
     setShowConfirmDialog(false);
+    // User chose to exit; clear draft to avoid stale data
+    clearDraft();
     onCancel();
   };
 

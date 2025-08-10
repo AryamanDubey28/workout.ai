@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Dumbbell, Plus, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -20,6 +20,58 @@ export default function Home() {
   const [isCreating, setIsCreating] = useState(false);
   const [editingWorkout, setEditingWorkout] = useState<Workout | null>(null);
   const [workoutToDelete, setWorkoutToDelete] = useState<Workout | null>(null);
+
+  // On mount, if there is a draft in localStorage, auto-open the form
+  const hasCheckedDraftRef = useRef(false);
+  useEffect(() => {
+    if (isLoading || hasCheckedDraftRef.current || isCreating || editingWorkout) return;
+    try {
+      // Prefer an edit draft first if any existing workout draft exists, else the "new" draft
+      const draftKeys = Object.keys(localStorage).filter((k) => k.startsWith('workout-ai-draft-'));
+      if (draftKeys.length === 0) return;
+
+      // Choose the most recently updated draft
+      let latestKey: string | null = null;
+      let latestTime = 0;
+      for (const key of draftKeys) {
+        const raw = localStorage.getItem(key);
+        if (!raw) continue;
+        try {
+          const parsed = JSON.parse(raw);
+          const t = parsed?.updatedAt ? new Date(parsed.updatedAt).getTime() : 0;
+          if (t > latestTime) {
+            latestTime = t;
+            latestKey = key;
+          }
+        } catch (_) {
+          // ignore broken draft
+        }
+      }
+
+      if (!latestKey) return;
+      const latestRaw = localStorage.getItem(latestKey);
+      if (!latestRaw) return;
+      const latestDraft = JSON.parse(latestRaw);
+
+      // If key is for an existing workout id, open edit; else open create
+      const parts = latestKey.split('workout-ai-draft-');
+      const targetId = parts[1];
+      if (targetId && targetId !== 'new') {
+        // Try to find that workout in current list; if not loaded yet, we will still open create with draft
+        const existing = workouts.find((w) => w.id === targetId);
+        if (existing) {
+          setEditingWorkout(existing);
+        } else {
+          setIsCreating(true);
+        }
+      } else {
+        setIsCreating(true);
+      }
+      hasCheckedDraftRef.current = true;
+    } catch (e) {
+      // no-op
+    }
+  }, [isLoading, isCreating, editingWorkout, workouts]);
 
   const loadWorkouts = useCallback(async () => {
     try {
