@@ -70,6 +70,13 @@ export function UserProfile({ user, onLogout }: UserProfileProps) {
             Sign Out
           </Button>
         </div>
+        
+        {/* Version info */}
+        <div className="flex justify-center mt-4 animate-fade-in animation-delay-700">
+          <span className="text-xs text-muted-foreground/60 font-mono">
+            v1.0.0
+          </span>
+        </div>
       </CardContent>
     </Card>
   );
