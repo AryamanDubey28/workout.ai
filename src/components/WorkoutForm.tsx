@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ExerciseRow } from './ExerciseRow';
 import { useExerciseCache } from '@/hooks/useExerciseCache';
-import { Plus, Save, X, AlertTriangle } from 'lucide-react';
+import { Plus, X, AlertTriangle } from 'lucide-react';
 
 interface WorkoutFormProps {
   workout?: Workout;
@@ -38,6 +38,7 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
   // Track unsaved changes and confirmation dialog
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   // ----- Draft autosave (localStorage) -----
   // Keyed by workout id for edits, or "new" for in-progress creation
@@ -185,6 +186,7 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
 
     const triggerServerSave = async () => {
       try {
+        setIsSaving(true);
         const payload = {
           name: name || workout.name || undefined,
           date: workout.date, // keep original date
@@ -198,6 +200,9 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
         });
       } catch (_) {
         // silent failure; local draft still protects data
+      } finally {
+        // Show saving state briefly, then fade out
+        setTimeout(() => setIsSaving(false), 500);
       }
     };
 
@@ -244,61 +249,73 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
     setExercises(exercises.filter((_, i) => i !== index));
   };
 
-  const handleSave = async () => {
-    const filteredExercises = exercises.filter(ex => ex.name.trim());
-    
-    const workoutToSave: Workout = {
-      id: workout?.id || crypto.randomUUID(),
-      name: name.trim() || undefined,
-      date: workout?.date || new Date(),
-      exercises: filteredExercises, // Only save exercises with names
-      createdAt: workout?.createdAt || new Date(),
-      updatedAt: new Date(),
-    };
 
-    // Track exercise patterns for autocomplete
-    try {
-      for (const exercise of filteredExercises) {
-        await fetch('/api/exercises/track', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            exerciseName: exercise.name,
-            exerciseData: {
-              weight: exercise.weight,
-              sets: exercise.sets,
-              reps: exercise.reps,
-              repsPerSet: exercise.repsPerSet,
-              useEffectiveReps: exercise.useEffectiveReps,
-              effectiveRepsMax: exercise.effectiveRepsMax,
-              effectiveRepsTarget: exercise.effectiveRepsTarget,
-            },
-          }),
-        });
-      }
-    } catch (error) {
-      console.error('Error tracking exercise patterns:', error);
-      // Don't fail the save if tracking fails
-    }
 
-    onSave(workoutToSave);
-    // Clear any persisted draft on successful save
-    clearDraft();
-    
-    // Invalidate exercise cache so new patterns are immediately available
-    invalidateCache();
-  };
-
-  const handleCancel = () => {
+  const handleCancel = async () => {
+    // Auto-save before closing if there are changes
     if (hasUnsavedChanges) {
-      setShowConfirmDialog(true);
-    } else {
-      // Clear any draft when exiting without unsaved changes
-      clearDraft();
-      onCancel();
+      try {
+        setIsSaving(true);
+        // Filter out empty exercises for saving
+        const filteredExercises = exercises.filter(ex => ex.name.trim());
+        
+        if (filteredExercises.length > 0 || name.trim()) {
+          const workoutToSave: Workout = {
+            id: workout?.id || crypto.randomUUID(),
+            name: name.trim() || undefined,
+            date: workout?.date || new Date(),
+            exercises: filteredExercises,
+            createdAt: workout?.createdAt || new Date(),
+            updatedAt: new Date(),
+          };
+
+          // Auto-save the workout
+          await onSave(workoutToSave);
+          
+          // Track exercise patterns for autocomplete
+          try {
+            for (const exercise of filteredExercises) {
+              await fetch('/api/exercises/track', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  exerciseName: exercise.name,
+                  exerciseData: {
+                    weight: exercise.weight,
+                    sets: exercise.sets,
+                    reps: exercise.reps,
+                    repsPerSet: exercise.repsPerSet,
+                    useEffectiveReps: exercise.useEffectiveReps,
+                    effectiveRepsMax: exercise.effectiveRepsMax,
+                    effectiveRepsTarget: exercise.effectiveRepsTarget,
+                  },
+                }),
+              });
+            }
+          } catch (error) {
+            console.error('Error tracking exercise patterns:', error);
+            // Don't fail the save if tracking fails
+          }
+          
+          // Invalidate exercise cache so new patterns are immediately available
+          invalidateCache();
+        }
+      } catch (error) {
+        console.error('Auto-save failed:', error);
+        // If auto-save fails, show confirmation dialog as fallback
+        setIsSaving(false);
+        setShowConfirmDialog(true);
+        return;
+      } finally {
+        setIsSaving(false);
+      }
     }
+    
+    // Clear any persisted draft on successful close
+    clearDraft();
+    onCancel();
   };
 
   const handleConfirmExit = () => {
@@ -311,8 +328,6 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
   const handleCancelExit = () => {
     setShowConfirmDialog(false);
   };
-
-  const canSave = exercises.some(ex => ex.name.trim());
 
   return (
     /* Modal Backdrop */
@@ -338,24 +353,25 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
                 {workout?.date.toLocaleDateString() || new Date().toLocaleDateString()}
               </div>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 items-center">
+              <div className="text-xs text-muted-foreground mr-2 flex items-center gap-1">
+                {isSaving ? (
+                  <>
+                    <div className="w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+                    Saving...
+                  </>
+                ) : (
+                  "Changes are saved automatically"
+                )}
+              </div>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={handleCancel}
-                className="flex items-center gap-2 interactive-scale hover:bg-destructive/5 hover:border-destructive/20 hover:text-destructive transition-all duration-200"
+                className="flex items-center gap-2 interactive-scale hover:bg-primary/5 hover:border-primary/30 hover:text-primary transition-all duration-200"
               >
                 <X className="h-4 w-4" />
-                <span className="hidden sm:inline">Cancel</span>
-              </Button>
-              <Button
-                size="sm"
-                onClick={handleSave}
-                disabled={!canSave}
-                className="flex items-center gap-2 interactive-scale hover:shadow-lg hover:shadow-primary/25 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Save className="h-4 w-4" />
-                <span className="hidden sm:inline">Save</span>
+                <span className="hidden sm:inline">Done</span>
               </Button>
             </div>
           </div>
@@ -414,7 +430,7 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
                   <div className="p-2 bg-amber-500/10 rounded-full">
                     <AlertTriangle className="h-5 w-5 text-amber-500" />
                   </div>
-                  <CardTitle className="text-lg">Unsaved Changes</CardTitle>
+                  <CardTitle className="text-lg">Save Failed</CardTitle>
                 </div>
                 <Button
                   variant="ghost"
@@ -429,8 +445,7 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
             
             <CardContent className="space-y-4">
               <div className="text-sm text-muted-foreground">
-                You have unsaved changes to this workout. Are you sure you want to exit? 
-                Your changes will not be saved.
+                Unable to auto-save your changes. Would you like to try again or exit without saving?
               </div>
               
               <div className="flex flex-col-reverse sm:flex-row gap-2 sm:gap-3 pt-2">
@@ -439,7 +454,7 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
                   onClick={handleCancelExit}
                   className="flex-1 interactive-scale hover:bg-primary/5 hover:border-primary/30 hover:text-primary transition-all duration-200"
                 >
-                  Keep Editing
+                  Try Again
                 </Button>
                 <Button
                   variant="destructive"

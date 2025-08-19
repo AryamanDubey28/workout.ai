@@ -35,17 +35,23 @@ export function useExerciseCache() {
     setError(null);
     
     try {
-      const response = await fetch('/api/exercises/all');
+      const response = await fetch('/api/exercises/all', {
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
       
       if (!response.ok) {
-        throw new Error('Failed to fetch exercises');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP ${response.status}: Failed to fetch exercises`);
       }
       
       const data = await response.json();
       const newCache: ExerciseCache = {
-        exercises: data.exercises,
-        lastUpdated: data.lastUpdated,
-        count: data.count
+        exercises: data.exercises || [],
+        lastUpdated: data.lastUpdated || new Date().toISOString(),
+        count: data.count || 0
       };
       
       setCache(newCache);
@@ -54,6 +60,18 @@ export function useExerciseCache() {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setError(errorMessage);
       console.error('Error refreshing exercise cache:', err);
+      
+      // Try to use cached data as fallback
+      const cached = localStorage.getItem(CACHE_KEY);
+      if (cached) {
+        try {
+          const parsedCache = JSON.parse(cached);
+          setCache(parsedCache);
+          console.log('Using cached exercise data as fallback');
+        } catch (e) {
+          console.warn('Failed to parse cached exercise data:', e);
+        }
+      }
     } finally {
       setIsLoading(false);
     }
