@@ -17,27 +17,43 @@ export function WorkoutCard({ workout, onClick, onDelete }: WorkoutCardProps) {
   const hasMoreExercises = workout.exercises.length > 5;
 
   const formatExercise = (exercise: any) => {
-    const weight = exercise.weight === 'BW' ? 'BW' : exercise.weight ? `${exercise.weight}kg` : '';
-    
     if (exercise.useEffectiveReps) {
+      const weight = exercise.weight === 'BW' ? 'BW' : exercise.weight ? `${exercise.weight}kg` : '';
       const max = exercise.effectiveRepsMax || 0;
       const target = exercise.effectiveRepsTarget || 0;
       return `${exercise.name} ${weight} - ${max}/${target} ER`.trim();
+    }
+
+    // Check if we have per-set weights
+    const hasPerSetWeights = exercise.weightsPerSet && exercise.weightsPerSet.length > 0;
+    
+    if (hasPerSetWeights) {
+      // Show combined weight+reps per set for clarity
+      const setDetails = [];
+      for (let i = 0; i < exercise.weightsPerSet.length; i++) {
+        const weight = exercise.weightsPerSet[i];
+        const reps = exercise.repsPerSet?.[i] || '?';
+        const weightStr = weight === 'BW' ? 'BW' : weight ? `${weight}kg` : '?kg';
+        setDetails.push(`${weightStr}×${reps}`);
+      }
+      return `${exercise.name} ⚖️ ${setDetails.join(', ')}`;
     } else {
-      // Smart summary logic for sets and reps
+      // Standard weight display
+      const weight = exercise.weight === 'BW' ? 'BW' : exercise.weight ? `${exercise.weight}kg` : '';
+      
       if (exercise.repsPerSet && exercise.repsPerSet.length > 0) {
         const sets = exercise.repsPerSet.length;
         const allSameReps = exercise.repsPerSet.every((reps: number) => reps === exercise.repsPerSet[0]);
         
         if (allSameReps) {
-          // All sets have same reps: "3x8"
+          // All sets have same reps: "Exercise 20kg - 3x8"
           return `${exercise.name} ${weight} - ${sets}x${exercise.repsPerSet[0]}`.trim();
         } else {
-          // Different reps per set: "8, 7, 6"
+          // Different reps per set: "Exercise 20kg - 8, 7, 6"
           return `${exercise.name} ${weight} - ${exercise.repsPerSet.join(', ')}`.trim();
         }
       } else {
-        // Fallback to old format if using old data structure
+        // Fallback to old format
         const sets = exercise.sets || 0;
         const reps = exercise.reps || 0;
         return `${exercise.name} ${weight} - ${sets}x${reps}`.trim();
