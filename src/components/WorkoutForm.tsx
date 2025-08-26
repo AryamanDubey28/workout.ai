@@ -228,7 +228,6 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
     };
   }, [name, workoutDate, exercises, workout?.id, workout?.name, checkForUnsavedChanges]);
 
-  // Keep a simple boolean for UI confirmations
   useEffect(() => {
     setHasUnsavedChanges(checkForUnsavedChanges());
   }, [checkForUnsavedChanges]);
