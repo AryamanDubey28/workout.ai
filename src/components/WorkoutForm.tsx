@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ExerciseRow } from './ExerciseRow';
 import { useExerciseCache } from '@/hooks/useExerciseCache';
-import { Plus, Save, X, AlertTriangle } from 'lucide-react';
+import { Plus, X, AlertTriangle, Calendar } from 'lucide-react';
 
 interface WorkoutFormProps {
   workout?: Workout;
@@ -16,6 +16,7 @@ interface WorkoutFormProps {
 
 export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
   const [name, setName] = useState(workout?.name || '');
+  const [workoutDate, setWorkoutDate] = useState(workout?.date || new Date());
   
   // Initialize exercises - if it's a new workout, start with one empty exercise
   const initialExercises = workout?.exercises || [
@@ -38,6 +39,8 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
   // Track unsaved changes and confirmation dialog
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
   // ----- Draft autosave (localStorage) -----
   // Keyed by workout id for edits, or "new" for in-progress creation
@@ -49,6 +52,7 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
   const checkForUnsavedChanges = useCallback(() => {
     if (workout) {
       if (name !== (workout.name || '')) return true;
+      if (workoutDate.getTime() !== workout.date.getTime()) return true;
       if (exercises.length !== workout.exercises.length) return true;
       return exercises.some((exercise, index) => {
         const originalExercise = workout.exercises[index];
@@ -56,6 +60,7 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
         return (
           exercise.name !== originalExercise.name ||
           exercise.weight !== originalExercise.weight ||
+          JSON.stringify(exercise.weightsPerSet) !== JSON.stringify(originalExercise.weightsPerSet) ||
           exercise.sets !== originalExercise.sets ||
           exercise.reps !== originalExercise.reps ||
           JSON.stringify(exercise.repsPerSet) !== JSON.stringify(originalExercise.repsPerSet) ||
@@ -70,6 +75,7 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
         exercises.some(exercise =>
           exercise.name.trim() !== '' ||
           exercise.weight.trim() !== '' ||
+          (exercise.weightsPerSet && exercise.weightsPerSet.length > 0 && exercise.weightsPerSet.some(w => w.trim() !== '')) ||
           (exercise.sets && exercise.sets > 0) ||
           (exercise.reps && exercise.reps > 0) ||
           (exercise.repsPerSet && exercise.repsPerSet.length > 0 && exercise.repsPerSet.some(r => r > 0)) ||
@@ -78,7 +84,7 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
         )
       );
     }
-  }, [exercises, name, workout]);
+  }, [exercises, name, workoutDate, workout]);
 
   // Load draft on mount (if present). If editing, it will use the workout id key; if creating, uses "new" key.
   useEffect(() => {
@@ -88,6 +94,9 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
         const draft = JSON.parse(raw);
         if (typeof draft?.name === 'string') {
           setName(draft.name);
+        }
+        if (draft?.workoutDate) {
+          setWorkoutDate(new Date(draft.workoutDate));
         }
         if (Array.isArray(draft?.exercises)) {
           setExercises(draft.exercises);
@@ -108,6 +117,7 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
       try {
         const draft = {
           name,
+          workoutDate: workoutDate.toISOString(),
           exercises,
           updatedAt: new Date().toISOString(),
         };
@@ -127,7 +137,7 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
         clearTimeout(saveTimeoutRef.current);
       }
     };
-  }, [name, exercises, draftStorageKey]);
+  }, [name, workoutDate, exercises, draftStorageKey]);
 
   // Flush draft when the page becomes hidden (backgrounded)
   useEffect(() => {
@@ -136,6 +146,7 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
         try {
           const draft = {
             name,
+            workoutDate: workoutDate.toISOString(),
             exercises,
             updatedAt: new Date().toISOString(),
           };
@@ -148,7 +159,7 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
           try {
             const payload = {
               name: name || workout.name || undefined,
-              date: workout.date, // keep original date when editing
+              date: workoutDate, // use the selected date
               exercises,
             };
             fetch(`/api/workouts/${workout.id}`, {
@@ -166,7 +177,7 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [name, exercises, draftStorageKey, workout?.id, workout?.name, workout?.date]);
+  }, [name, workoutDate, exercises, draftStorageKey, workout?.id, workout?.name]);
 
   const clearDraft = () => {
     try {
@@ -185,9 +196,10 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
 
     const triggerServerSave = async () => {
       try {
+        setIsSaving(true);
         const payload = {
           name: name || workout.name || undefined,
-          date: workout.date, // keep original date
+          date: workoutDate, // use the selected date
           exercises,
         };
         await fetch(`/api/workouts/${workout.id}`, {
@@ -198,6 +210,9 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
         });
       } catch (_) {
         // silent failure; local draft still protects data
+      } finally {
+        // Show saving state briefly, then fade out
+        setTimeout(() => setIsSaving(false), 500);
       }
     };
 
@@ -211,9 +226,8 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
         clearTimeout(serverSaveTimeoutRef.current);
       }
     };
-  }, [name, exercises, workout?.id, workout?.name, workout?.date, checkForUnsavedChanges]);
+  }, [name, workoutDate, exercises, workout?.id, workout?.name, checkForUnsavedChanges]);
 
-  // Keep a simple boolean for UI confirmations
   useEffect(() => {
     setHasUnsavedChanges(checkForUnsavedChanges());
   }, [checkForUnsavedChanges]);
@@ -244,61 +258,74 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
     setExercises(exercises.filter((_, i) => i !== index));
   };
 
-  const handleSave = async () => {
-    const filteredExercises = exercises.filter(ex => ex.name.trim());
-    
-    const workoutToSave: Workout = {
-      id: workout?.id || crypto.randomUUID(),
-      name: name.trim() || undefined,
-      date: workout?.date || new Date(),
-      exercises: filteredExercises, // Only save exercises with names
-      createdAt: workout?.createdAt || new Date(),
-      updatedAt: new Date(),
-    };
 
-    // Track exercise patterns for autocomplete
-    try {
-      for (const exercise of filteredExercises) {
-        await fetch('/api/exercises/track', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            exerciseName: exercise.name,
-            exerciseData: {
-              weight: exercise.weight,
-              sets: exercise.sets,
-              reps: exercise.reps,
-              repsPerSet: exercise.repsPerSet,
-              useEffectiveReps: exercise.useEffectiveReps,
-              effectiveRepsMax: exercise.effectiveRepsMax,
-              effectiveRepsTarget: exercise.effectiveRepsTarget,
-            },
-          }),
-        });
-      }
-    } catch (error) {
-      console.error('Error tracking exercise patterns:', error);
-      // Don't fail the save if tracking fails
-    }
 
-    onSave(workoutToSave);
-    // Clear any persisted draft on successful save
-    clearDraft();
-    
-    // Invalidate exercise cache so new patterns are immediately available
-    invalidateCache();
-  };
-
-  const handleCancel = () => {
+  const handleCancel = async () => {
+    // Auto-save before closing if there are changes
     if (hasUnsavedChanges) {
-      setShowConfirmDialog(true);
-    } else {
-      // Clear any draft when exiting without unsaved changes
-      clearDraft();
-      onCancel();
+      try {
+        setIsSaving(true);
+        // Filter out empty exercises for saving
+        const filteredExercises = exercises.filter(ex => ex.name.trim());
+        
+        if (filteredExercises.length > 0 || name.trim()) {
+          const workoutToSave: Workout = {
+            id: workout?.id || crypto.randomUUID(),
+            name: name.trim() || undefined,
+            date: workoutDate,
+            exercises: filteredExercises,
+            createdAt: workout?.createdAt || new Date(),
+            updatedAt: new Date(),
+          };
+
+          // Auto-save the workout
+          await onSave(workoutToSave);
+          
+          // Track exercise patterns for autocomplete
+          try {
+            for (const exercise of filteredExercises) {
+              await fetch('/api/exercises/track', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  exerciseName: exercise.name,
+                  exerciseData: {
+                    weight: exercise.weight,
+                    weightsPerSet: exercise.weightsPerSet,
+                    sets: exercise.sets,
+                    reps: exercise.reps,
+                    repsPerSet: exercise.repsPerSet,
+                    useEffectiveReps: exercise.useEffectiveReps,
+                    effectiveRepsMax: exercise.effectiveRepsMax,
+                    effectiveRepsTarget: exercise.effectiveRepsTarget,
+                  },
+                }),
+              });
+            }
+          } catch (error) {
+            console.error('Error tracking exercise patterns:', error);
+            // Don't fail the save if tracking fails
+          }
+          
+          // Invalidate exercise cache so new patterns are immediately available
+          invalidateCache();
+        }
+      } catch (error) {
+        console.error('Auto-save failed:', error);
+        // If auto-save fails, show confirmation dialog as fallback
+        setIsSaving(false);
+        setShowConfirmDialog(true);
+        return;
+      } finally {
+        setIsSaving(false);
+      }
     }
+    
+    // Clear any persisted draft on successful close
+    clearDraft();
+    onCancel();
   };
 
   const handleConfirmExit = () => {
@@ -312,7 +339,15 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
     setShowConfirmDialog(false);
   };
 
-  const canSave = exercises.some(ex => ex.name.trim());
+  const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedDate = new Date(e.target.value);
+    setWorkoutDate(selectedDate);
+    setShowDatePicker(false);
+  };
+
+  const formatDateForInput = (date: Date) => {
+    return date.toISOString().split('T')[0];
+  };
 
   return (
     /* Modal Backdrop */
@@ -334,28 +369,46 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
                 onChange={(e) => setName(e.target.value)}
                 className="text-lg font-semibold bg-transparent border-none outline-none focus:ring-0 placeholder:text-muted-foreground w-full"
               />
-              <div className="text-sm text-muted-foreground mt-1">
-                {workout?.date.toLocaleDateString() || new Date().toLocaleDateString()}
+              <div className="text-sm text-muted-foreground mt-1 relative">
+                {showDatePicker ? (
+                  <input
+                    type="date"
+                    value={formatDateForInput(workoutDate)}
+                    onChange={handleDateChange}
+                    onBlur={() => setShowDatePicker(false)}
+                    className="bg-background border border-border rounded px-2 py-1 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    autoFocus
+                  />
+                ) : (
+                  <button
+                    onClick={() => setShowDatePicker(true)}
+                    className="hover:text-primary transition-colors duration-200 cursor-pointer underline decoration-dotted underline-offset-2 flex items-center gap-1"
+                  >
+                    <Calendar className="h-3 w-3" />
+                    {workoutDate.toLocaleDateString()}
+                  </button>
+                )}
               </div>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 items-center">
+              <div className="text-xs text-muted-foreground mr-2 flex items-center gap-1">
+                {isSaving ? (
+                  <>
+                    <div className="w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+                    Saving...
+                  </>
+                ) : (
+                  "Changes are saved automatically"
+                )}
+              </div>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={handleCancel}
-                className="flex items-center gap-2 interactive-scale hover:bg-destructive/5 hover:border-destructive/20 hover:text-destructive transition-all duration-200"
+                className="flex items-center gap-2 interactive-scale hover:bg-primary/5 hover:border-primary/30 hover:text-primary transition-all duration-200"
               >
                 <X className="h-4 w-4" />
-                <span className="hidden sm:inline">Cancel</span>
-              </Button>
-              <Button
-                size="sm"
-                onClick={handleSave}
-                disabled={!canSave}
-                className="flex items-center gap-2 interactive-scale hover:shadow-lg hover:shadow-primary/25 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Save className="h-4 w-4" />
-                <span className="hidden sm:inline">Save</span>
+                <span className="hidden sm:inline">Done</span>
               </Button>
             </div>
           </div>
@@ -414,7 +467,7 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
                   <div className="p-2 bg-amber-500/10 rounded-full">
                     <AlertTriangle className="h-5 w-5 text-amber-500" />
                   </div>
-                  <CardTitle className="text-lg">Unsaved Changes</CardTitle>
+                  <CardTitle className="text-lg">Save Failed</CardTitle>
                 </div>
                 <Button
                   variant="ghost"
@@ -429,8 +482,7 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
             
             <CardContent className="space-y-4">
               <div className="text-sm text-muted-foreground">
-                You have unsaved changes to this workout. Are you sure you want to exit? 
-                Your changes will not be saved.
+                Unable to auto-save your changes. Would you like to try again or exit without saving?
               </div>
               
               <div className="flex flex-col-reverse sm:flex-row gap-2 sm:gap-3 pt-2">
@@ -439,7 +491,7 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
                   onClick={handleCancelExit}
                   className="flex-1 interactive-scale hover:bg-primary/5 hover:border-primary/30 hover:text-primary transition-all duration-200"
                 >
-                  Keep Editing
+                  Try Again
                 </Button>
                 <Button
                   variant="destructive"
