@@ -34,8 +34,7 @@ interface WorkoutFormProps {
 export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
   const [name, setName] = useState(workout?.name || '');
   const [workoutDate, setWorkoutDate] = useState(workout?.date || new Date());
-  
-  // Configure sensors for drag and drop with mobile support
+
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
@@ -47,7 +46,7 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
     })
   );
   
-  // Initialize exercises - if it's a new workout, start with one empty exercise
+
   const initialExercises = workout?.exercises || [
     {
       id: crypto.randomUUID(),
@@ -71,6 +70,20 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [activeExerciseId, setActiveExerciseId] = useState<string | null>(null);
+
+  // Disable background scrolling when modal is open
+  useEffect(() => {
+    // Store original overflow style
+    const originalOverflow = document.body.style.overflow;
+    
+    // Disable scrolling
+    document.body.style.overflow = 'hidden';
+    
+    // Cleanup: restore original overflow on unmount
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, []);
 
   // ----- Draft autosave (localStorage) -----
   // Keyed by workout id for edits, or "new" for in-progress creation
