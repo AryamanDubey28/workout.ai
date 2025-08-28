@@ -4,7 +4,11 @@ import { useState } from 'react';
 import { Exercise } from '@/types/workout';
 import { Button } from '@/components/ui/button';
 import { Autocomplete } from '@/components/ui/autocomplete';
-import { Trash2, ChevronDown, ChevronRight, Edit3, Dumbbell } from 'lucide-react';
+import { Trash2, ChevronDown, ChevronRight, Edit3, Dumbbell, GripVertical } from 'lucide-react';
+import {
+  useSortable,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 interface ExerciseRowProps {
   exercise: Exercise;
@@ -350,6 +354,20 @@ function SetsAndRepsInputs({ exercise, onChange }: SetsAndRepsInputsProps) {
 }
 
 export function ExerciseRow({ exercise, onChange, onDelete, isExpanded = false, onToggleExpand }: ExerciseRowProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: exercise.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
   const handleInputChange = (field: keyof Exercise, value: any) => {
     onChange({
       ...exercise,
@@ -458,13 +476,28 @@ export function ExerciseRow({ exercise, onChange, onDelete, isExpanded = false, 
   // If collapsed, show compact summary
   if (!isExpanded) {
     return (
-      <div className="border rounded-lg bg-card/30 hover:bg-card/50 transition-all duration-200 hover:shadow-sm hover:border-border/70 group">
+      <div 
+        ref={setNodeRef} 
+        style={style} 
+        className={`border rounded-lg bg-card/30 hover:bg-card/50 transition-all duration-200 hover:shadow-sm hover:border-border/70 group ${
+          isDragging ? 'opacity-50 shadow-lg scale-105' : ''
+        }`}
+      >
         <div 
           className="flex items-center justify-between p-4 cursor-pointer transition-all duration-200"
           onClick={onToggleExpand}
         >
           <div className="flex items-center gap-3 flex-1 min-w-0">
             <div className="flex items-center gap-2">
+              <button
+                className="touch-none opacity-60 hover:opacity-100 transition-opacity duration-200 cursor-grab active:cursor-grabbing p-1 -ml-1"
+                {...attributes}
+                {...listeners}
+                onClick={(e) => e.stopPropagation()}
+                title="Drag to reorder"
+              >
+                <GripVertical className="h-4 w-4 text-muted-foreground" />
+              </button>
               <Dumbbell className="h-4 w-4 text-muted-foreground flex-shrink-0 transition-colors duration-200 group-hover:text-primary" />
               {exercise.weightsPerSet && exercise.weightsPerSet.length > 0 && (
                 <span className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded-full font-medium">⚖️</span>
@@ -515,10 +548,24 @@ export function ExerciseRow({ exercise, onChange, onDelete, isExpanded = false, 
 
   // Expanded view for editing
   return (
-    <div className="border rounded-lg bg-card/50 overflow-hidden transition-all duration-300 shadow-sm hover:shadow-md border-border/70 hover:border-border">
+    <div 
+      ref={setNodeRef} 
+      style={style} 
+      className={`border rounded-lg bg-card/50 overflow-hidden transition-all duration-300 shadow-sm hover:shadow-md border-border/70 hover:border-border ${
+        isDragging ? 'opacity-50 shadow-lg scale-105' : ''
+      }`}
+    >
       {/* Header with collapse button */}
       <div className="flex items-center justify-between p-4 bg-muted/20 border-b transition-all duration-200 hover:bg-muted/30">
         <div className="flex items-center gap-3">
+          <button
+            className="touch-none opacity-60 hover:opacity-100 transition-opacity duration-200 cursor-grab active:cursor-grabbing p-1 -ml-1"
+            {...attributes}
+            {...listeners}
+            title="Drag to reorder"
+          >
+            <GripVertical className="h-4 w-4 text-muted-foreground" />
+          </button>
           <Button
             type="button"
             variant="ghost"

@@ -7,6 +7,23 @@ import { Button } from '@/components/ui/button';
 import { ExerciseRow } from './ExerciseRow';
 import { useExerciseCache } from '@/hooks/useExerciseCache';
 import { Plus, X, AlertTriangle, Calendar } from 'lucide-react';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+  DragStartEvent,
+  DragOverlay,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
 
 interface WorkoutFormProps {
   workout?: Workout;
@@ -17,6 +34,18 @@ interface WorkoutFormProps {
 export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
   const [name, setName] = useState(workout?.name || '');
   const [workoutDate, setWorkoutDate] = useState(workout?.date || new Date());
+  
+  // Configure sensors for drag and drop with mobile support
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 5, // Prevent accidental drags
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
   
   // Initialize exercises - if it's a new workout, start with one empty exercise
   const initialExercises = workout?.exercises || [
@@ -41,6 +70,7 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [activeExerciseId, setActiveExerciseId] = useState<string | null>(null);
 
   // ----- Draft autosave (localStorage) -----
   // Keyed by workout id for edits, or "new" for in-progress creation
@@ -258,6 +288,25 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
     setExercises(exercises.filter((_, i) => i !== index));
   };
 
+  // Handle drag start event
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveExerciseId(event.active.id as string);
+  };
+
+  // Handle drag end event to reorder exercises
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (over && active.id !== over.id) {
+      const oldIndex = exercises.findIndex((exercise) => exercise.id === active.id);
+      const newIndex = exercises.findIndex((exercise) => exercise.id === over.id);
+
+      setExercises((exercises) => arrayMove(exercises, oldIndex, newIndex));
+    }
+    
+    setActiveExerciseId(null);
+  };
+
 
 
   const handleCancel = async () => {
@@ -424,18 +473,44 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
           </div>
 
           {/* Exercise Rows */}
-          <div className="space-y-3">
-            {exercises.map((exercise, index) => (
-              <ExerciseRow
-                key={exercise.id}
-                exercise={exercise}
-                onChange={(updatedExercise) => updateExercise(index, updatedExercise)}
-                onDelete={() => deleteExercise(index)}
-                isExpanded={expandedExerciseId === exercise.id}
-                onToggleExpand={() => toggleExerciseExpanded(exercise.id)}
-              />
-            ))}
-          </div>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext
+              items={exercises.map(exercise => exercise.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              <div className="space-y-3">
+                {exercises.map((exercise, index) => (
+                  <ExerciseRow
+                    key={exercise.id}
+                    exercise={exercise}
+                    onChange={(updatedExercise) => updateExercise(index, updatedExercise)}
+                    onDelete={() => deleteExercise(index)}
+                    isExpanded={expandedExerciseId === exercise.id}
+                    onToggleExpand={() => toggleExerciseExpanded(exercise.id)}
+                  />
+                ))}
+              </div>
+            </SortableContext>
+            
+            <DragOverlay>
+              {activeExerciseId ? (
+                <div className="transform rotate-6 opacity-95">
+                  <ExerciseRow
+                    exercise={exercises.find(ex => ex.id === activeExerciseId)!}
+                    onChange={() => {}} // No-op for overlay
+                    onDelete={() => {}} // No-op for overlay
+                    isExpanded={expandedExerciseId === activeExerciseId}
+                    onToggleExpand={() => {}} // No-op for overlay
+                  />
+                </div>
+              ) : null}
+            </DragOverlay>
+          </DndContext>
 
           {/* Add Exercise Button */}
           <div className="text-center">
@@ -450,7 +525,7 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
             </Button>
             {exercises.length > 1 && (
               <p className="text-xs text-muted-foreground mt-2">
-                💡 Click on any exercise to expand and edit it
+                💡 Click to expand • Drag ⋮⋮ to reorder exercises
               </p>
             )}
           </div>
