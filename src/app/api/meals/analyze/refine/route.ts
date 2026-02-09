@@ -16,7 +16,8 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { description, macros, refinement } = body;
+    const { description, macros, refinement, context } = body;
+    const contextText = typeof context === 'string' ? context.trim().slice(0, 500) : '';
 
     if (!description || !macros || !refinement) {
       return NextResponse.json(
@@ -48,7 +49,9 @@ Only return the JSON, no other text.`,
         },
         {
           role: 'user',
-          content: `Please update the analysis: ${refinement}`,
+          content: contextText
+            ? `Original meal context from user: ${contextText}\n\nPlease update the analysis: ${refinement}`
+            : `Please update the analysis: ${refinement}`,
         },
       ],
       max_completion_tokens: 200,

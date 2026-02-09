@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Macros, MealCategory, MEAL_CATEGORIES } from '@/types/meal';
-import { X, Loader2, Send, Check, Sparkles, Pencil } from 'lucide-react';
+import { X, Loader2, Send, Sparkles, Pencil, Save } from 'lucide-react';
 
 interface RefinementMessage {
   role: 'user' | 'assistant';
@@ -17,7 +17,9 @@ interface MealReviewModalProps {
   description: string;
   macros: Macros;
   category: MealCategory;
+  analysisContext?: string;
   onConfirm: (description: string, macros: Macros, category: MealCategory) => void;
+  isSaving?: boolean;
   onCancel: () => void;
 }
 
@@ -25,7 +27,9 @@ export function MealReviewModal({
   description: initialDescription,
   macros: initialMacros,
   category: initialCategory,
+  analysisContext,
   onConfirm,
+  isSaving = false,
   onCancel,
 }: MealReviewModalProps) {
   const [description, setDescription] = useState(initialDescription);
@@ -45,7 +49,7 @@ export function MealReviewModal({
 
   const handleRefine = async () => {
     const text = refinementText.trim();
-    if (!text || isRefining) return;
+    if (!text || isRefining || isSaving) return;
 
     setRefinementText('');
     setIsRefining(true);
@@ -57,7 +61,7 @@ export function MealReviewModal({
       const res = await fetch('/api/meals/analyze/refine', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ description, macros, refinement: text }),
+        body: JSON.stringify({ description, macros, refinement: text, context: analysisContext }),
       });
 
       if (!res.ok) {
@@ -98,7 +102,9 @@ export function MealReviewModal({
   return (
     <div
       className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center animate-backdrop-in"
-      onClick={onCancel}
+      onClick={() => {
+        if (!isSaving) onCancel();
+      }}
     >
       <Card
         className="w-full sm:max-w-md mx-auto border-border/50 shadow-2xl shadow-black/25 animate-modal-in rounded-b-none sm:rounded-b-xl max-h-[90vh] flex flex-col"
@@ -110,13 +116,19 @@ export function MealReviewModal({
               <Sparkles className="h-4 w-4 text-primary" />
               <h3 className="font-semibold text-base">Review Meal</h3>
             </div>
-            <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={onCancel}>
+            <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={onCancel} disabled={isSaving}>
               <X className="h-4 w-4" />
             </Button>
           </div>
         </CardHeader>
 
         <CardContent className="px-4 pb-4 flex flex-col gap-4 overflow-hidden flex-1 min-h-0">
+          {analysisContext && (
+            <div className="text-xs rounded-lg border border-border/60 bg-muted/30 p-2.5 text-muted-foreground">
+              Context note: {analysisContext}
+            </div>
+          )}
+
           {/* AI Suggestion */}
           <div className="bg-muted/50 rounded-lg p-3 space-y-3">
             <div className="flex items-start justify-between gap-2">
@@ -259,13 +271,13 @@ export function MealReviewModal({
               onKeyDown={handleKeyDown}
               placeholder="Refine... e.g. 'add 2 scoops protein'"
               className="text-sm"
-              disabled={isRefining}
+              disabled={isRefining || isSaving}
             />
             <Button
               size="sm"
               variant="ghost"
               onClick={handleRefine}
-              disabled={!refinementText.trim() || isRefining}
+              disabled={!refinementText.trim() || isRefining || isSaving}
               className="shrink-0 h-9 w-9 p-0"
             >
               {isRefining ? (
@@ -276,16 +288,36 @@ export function MealReviewModal({
             </Button>
           </div>
 
-          {/* Confirm Button */}
-          <Button
-            onClick={() => onConfirm(description, macros, category)}
-            disabled={isRefining}
-            className="w-full interactive-scale"
-            size="lg"
-          >
-            <Check className="h-4 w-4 mr-2" />
-            Add to {categoryLabel}
-          </Button>
+          <p className="text-[11px] text-muted-foreground text-center">
+            This meal is not saved yet. Tap Save Meal to log it.
+          </p>
+
+          <div className="grid grid-cols-2 gap-2">
+            <Button variant="outline" onClick={onCancel} disabled={isRefining || isSaving}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => onConfirm(description, macros, category)}
+              disabled={isRefining || isSaving}
+              className="interactive-scale"
+            >
+              {isSaving ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="h-4 w-4 mr-2" />
+                  Save Meal
+                </>
+              )}
+            </Button>
+          </div>
+
+          <div className="text-center text-[11px] text-muted-foreground">
+            Category: {categoryLabel}
+          </div>
         </CardContent>
       </Card>
     </div>
