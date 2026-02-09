@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSessionFromCookie } from '@/lib/auth';
-import { getUserWorkouts, getUserMealsByDate, getMacroGoal } from '@/lib/db';
+import { getUserById, getUserWorkouts, getUserMealsByDate, getMacroGoal } from '@/lib/db';
 import OpenAI from 'openai';
 
 function getOpenAI() {
@@ -67,6 +67,20 @@ function formatGoalForContext(goal: any): string {
   return `Goal: ${goal.goalType} - ${goal.calories} cal, ${goal.protein}g protein, ${goal.carbs}g carbs, ${goal.fat}g fat daily`;
 }
 
+function formatUserProfileForContext(user: any, goal: any): string {
+  if (!user) {
+    return 'Age: unknown. Weight: unknown. Height: not set. Sex: not set. Activity level: not set.';
+  }
+
+  const age = user.age ?? 'unknown';
+  const weight = user.weight != null ? `${user.weight} kg` : 'unknown';
+  const height = goal?.heightCm ? `${goal.heightCm} cm` : 'not set';
+  const sex = goal?.sex || 'not set';
+  const activityLevel = goal?.activityLevel || 'not set';
+
+  return `Age: ${age}. Weight: ${weight}. Height: ${height}. Sex: ${sex}. Activity level: ${activityLevel}.`;
+}
+
 function logOpenAIError(context: string, error: any, meta?: Record<string, any>) {
   const err = error ?? {};
   const details = {
@@ -118,18 +132,34 @@ export async function POST(request: NextRequest) {
     };
 
     // Fetch context in parallel
-    const todayKey = new Date().toISOString().split('T')[0];
-    const [workouts, todayMeals, macroGoal] = await Promise.all([
+    const now = new Date();
+    const todayKey = now.toISOString().split('T')[0];
+    const currentDateUtcIso = now.toISOString();
+    const currentDateUtcLong = now.toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      timeZone: 'UTC',
+    });
+    const [userProfile, workouts, todayMeals, macroGoal] = await Promise.all([
+      getUserById(session.userId),
       getUserWorkouts(session.userId),
       getUserMealsByDate(session.userId, todayKey),
       getMacroGoal(session.userId),
     ]);
 
+    const userProfileContext = formatUserProfileForContext(userProfile, macroGoal);
     const workoutContext = formatWorkoutsForContext(workouts);
     const mealContext = formatMealsForContext(todayMeals);
     const goalContext = formatGoalForContext(macroGoal);
 
-    const systemMessage = `You are a knowledgeable fitness and workout assistant for ${session.name}. You have access to their recent workout history (including workout notes), today's meals, and their nutrition goals. You can provide advice on training, form, programming, recovery, and nutrition.
+    const systemMessage = `You are a knowledgeable fitness and workout assistant for ${session.name}. You have access to their profile metrics (age, weight, height, sex, activity level), recent workout history (including workout notes), today's meals, and their nutrition goals. You can provide advice on training, form, programming, recovery, and nutrition.
+
+Current date context: ${currentDateUtcLong} (UTC date key: ${todayKey}, UTC timestamp: ${currentDateUtcIso}). Use this to reason about recency and interpret terms like today, yesterday, and last workout.
+
+User profile:
+${userProfileContext}
 
 Here are their recent workouts:
 ${workoutContext}
