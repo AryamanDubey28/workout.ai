@@ -1,7 +1,7 @@
 import { sql } from '@vercel/postgres';
 import { User, CreateUserData } from '@/types/user';
 import { Workout, WorkoutPreset, SplitReminder, Exercise } from '@/types/workout';
-import { Meal, Macros, MacroGoal } from '@/types/meal';
+import { Meal, MealCategory, Macros, MacroGoal } from '@/types/meal';
 import bcrypt from 'bcryptjs';
 
 function parseDateOnly(value: string): Date | null {
@@ -194,6 +194,11 @@ export async function initDatabase() {
 
     await sql`
       CREATE INDEX IF NOT EXISTS meals_user_date_idx ON meals(user_id, date DESC);
+    `;
+
+    // Add meal_category column (migration for existing tables)
+    await sql`
+      ALTER TABLE meals ADD COLUMN IF NOT EXISTS meal_category VARCHAR(20) NOT NULL DEFAULT 'snack';
     `;
 
     // Create macro_goals table
@@ -846,17 +851,17 @@ export async function getNextSplitPreset(userId: string): Promise<SplitReminder>
 // Create a new meal
 export async function createMeal(
   userId: string,
-  meal: { id: string; description: string; macros: Macros; imageUrl?: string; date: string }
+  meal: { id: string; description: string; macros: Macros; category: MealCategory; imageUrl?: string; date: string }
 ): Promise<Meal | null> {
   try {
     const result = await sql`
-      INSERT INTO meals (id, user_id, description, calories, protein, carbs, fat, image_url, date)
+      INSERT INTO meals (id, user_id, description, calories, protein, carbs, fat, meal_category, image_url, date)
       VALUES (
         ${meal.id}, ${userId}, ${meal.description},
         ${meal.macros.calories}, ${meal.macros.protein}, ${meal.macros.carbs}, ${meal.macros.fat},
-        ${meal.imageUrl || null}, ${meal.date}
+        ${meal.category}, ${meal.imageUrl || null}, ${meal.date}
       )
-      RETURNING id, description, calories, protein, carbs, fat, image_url, date, created_at;
+      RETURNING id, description, calories, protein, carbs, fat, meal_category, image_url, date, created_at;
     `;
 
     const row = result.rows[0];
@@ -869,6 +874,7 @@ export async function createMeal(
         carbs: Number(row.carbs),
         fat: Number(row.fat),
       },
+      category: row.meal_category,
       imageUrl: row.image_url,
       createdAt: new Date(row.created_at),
     };
@@ -882,10 +888,18 @@ export async function createMeal(
 export async function getUserMealsByDate(userId: string, date: string): Promise<Meal[]> {
   try {
     const result = await sql`
-      SELECT id, description, calories, protein, carbs, fat, image_url, created_at
+      SELECT id, description, calories, protein, carbs, fat, meal_category, image_url, created_at
       FROM meals
       WHERE user_id = ${userId} AND date = ${date}
-      ORDER BY created_at ASC;
+      ORDER BY
+        CASE meal_category
+          WHEN 'breakfast' THEN 1
+          WHEN 'lunch' THEN 2
+          WHEN 'snack' THEN 3
+          WHEN 'dinner' THEN 4
+          ELSE 5
+        END,
+        created_at ASC;
     `;
 
     return result.rows.map(row => ({
@@ -897,6 +911,7 @@ export async function getUserMealsByDate(userId: string, date: string): Promise<
         carbs: Number(row.carbs),
         fat: Number(row.fat),
       },
+      category: row.meal_category || 'snack',
       imageUrl: row.image_url,
       createdAt: new Date(row.created_at),
     }));

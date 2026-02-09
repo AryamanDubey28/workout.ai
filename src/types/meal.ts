@@ -5,10 +5,20 @@ export interface Macros {
   fat: number;
 }
 
+export type MealCategory = 'breakfast' | 'lunch' | 'snack' | 'dinner';
+
+export const MEAL_CATEGORIES: { key: MealCategory; label: string }[] = [
+  { key: 'breakfast', label: 'Breakfast' },
+  { key: 'lunch', label: 'Lunch' },
+  { key: 'snack', label: 'Snack' },
+  { key: 'dinner', label: 'Dinner' },
+];
+
 export interface Meal {
   id: string;
   description: string;
   macros: Macros;
+  category: MealCategory;
   imageUrl?: string;
   createdAt: Date;
 }
