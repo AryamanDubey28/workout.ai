@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { ChevronLeft, ChevronRight, Loader2, UtensilsCrossed, Plus } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Loader2, UtensilsCrossed, Plus, Camera } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { MealCard } from '@/components/MealCard';
@@ -48,12 +48,19 @@ export function MealTracker() {
   const [isLoading, setIsLoading] = useState(true);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analyzingCategory, setAnalyzingCategory] = useState<MealCategory | null>(null);
+  const [isSavingMeal, setIsSavingMeal] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Review modal state
   const [pendingCategory, setPendingCategory] = useState<MealCategory>('breakfast');
-  const [reviewData, setReviewData] = useState<{ description: string; macros: Macros } | null>(null);
+  const [quickAddCategory, setQuickAddCategory] = useState<MealCategory>('breakfast');
+  const [analysisContext, setAnalysisContext] = useState('');
+  const [reviewData, setReviewData] = useState<{
+    description: string;
+    macros: Macros;
+    context?: string;
+  } | null>(null);
 
   const loadGoal = useCallback(async () => {
     try {
@@ -133,6 +140,10 @@ export function MealTracker() {
     try {
       const formData = new FormData();
       formData.append('image', file);
+      const context = analysisContext.trim();
+      if (context) {
+        formData.append('context', context);
+      }
 
       const analyzeRes = await fetch('/api/meals/analyze', {
         method: 'POST',
@@ -145,7 +156,11 @@ export function MealTracker() {
       }
 
       const analysis = await analyzeRes.json();
-      setReviewData({ description: analysis.description, macros: analysis.macros });
+      setReviewData({
+        description: analysis.description,
+        macros: analysis.macros,
+        context: context || undefined,
+      });
     } catch (err: any) {
       console.error('Error:', err);
       setError(err.message || 'Something went wrong');
@@ -157,7 +172,8 @@ export function MealTracker() {
   };
 
   const handleConfirmMeal = async (description: string, macros: Macros, category: MealCategory) => {
-    setReviewData(null);
+    setIsSavingMeal(true);
+    setError(null);
 
     try {
       const mealData = {
@@ -174,23 +190,30 @@ export function MealTracker() {
         body: JSON.stringify(mealData),
       });
 
-      if (saveRes.ok) {
-        const { meal } = await saveRes.json();
-        const newMeal: Meal = {
-          ...meal,
-          createdAt: new Date(meal.createdAt),
-        };
-        setMeals((prev) => [...prev, newMeal]);
-        setTotals((prev) => ({
-          calories: prev.calories + newMeal.macros.calories,
-          protein: prev.protein + newMeal.macros.protein,
-          carbs: prev.carbs + newMeal.macros.carbs,
-          fat: prev.fat + newMeal.macros.fat,
-        }));
+      if (!saveRes.ok) {
+        const errData = await saveRes.json().catch(() => null);
+        throw new Error(errData?.error || 'Failed to save meal');
       }
+
+      const { meal } = await saveRes.json();
+      const newMeal: Meal = {
+        ...meal,
+        createdAt: new Date(meal.createdAt),
+      };
+      setMeals((prev) => [...prev, newMeal]);
+      setTotals((prev) => ({
+        calories: prev.calories + newMeal.macros.calories,
+        protein: prev.protein + newMeal.macros.protein,
+        carbs: prev.carbs + newMeal.macros.carbs,
+        fat: prev.fat + newMeal.macros.fat,
+      }));
+      setAnalysisContext('');
+      setReviewData(null);
     } catch (err: any) {
       console.error('Error saving meal:', err);
       setError(err.message || 'Failed to save meal');
+    } finally {
+      setIsSavingMeal(false);
     }
   };
 
@@ -231,7 +254,7 @@ export function MealTracker() {
   );
 
   return (
-    <div className="animate-fade-in-blur">
+    <div className="animate-fade-in-blur max-w-3xl mx-auto">
       {/* Hidden file input */}
       <input
         ref={fileInputRef}
@@ -258,6 +281,73 @@ export function MealTracker() {
           <ChevronRight className="h-5 w-5" />
         </Button>
       </div>
+
+      {/* Upload Area */}
+      <Card className="mb-6 border-border/60 bg-card/70 backdrop-blur-sm animate-slide-up animation-delay-75">
+        <CardContent className="p-4 sm:p-6">
+          <div className="max-w-2xl mx-auto text-center">
+            <div className="mx-auto w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mb-3">
+              <Camera className="h-7 w-7 text-primary" />
+            </div>
+            <h3 className="text-base sm:text-lg font-semibold">Upload Meal Photo</h3>
+            <p className="text-sm text-muted-foreground mt-1">
+              Add an optional note for better one-shot accuracy.
+            </p>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4">
+              {MEAL_CATEGORIES.map((cat) => (
+                <button
+                  key={cat.key}
+                  onClick={() => setQuickAddCategory(cat.key)}
+                  className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                    quickAddCategory === cat.key
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-muted/60 text-muted-foreground hover:bg-muted'
+                  }`}
+                >
+                  {cat.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-4 text-left">
+              <label
+                htmlFor="meal-analysis-context"
+                className="text-xs font-medium text-muted-foreground uppercase tracking-wider"
+              >
+                Comment for AI (optional)
+              </label>
+              <textarea
+                id="meal-analysis-context"
+                value={analysisContext}
+                onChange={(e) => setAnalysisContext(e.target.value)}
+                placeholder="Example: This has 2 chicken thighs, extra olive oil, and no rice."
+                className="mt-2 min-h-24 w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                maxLength={280}
+              />
+            </div>
+
+            <Button
+              onClick={() => handleAddMeal(quickAddCategory)}
+              disabled={isAnalyzing}
+              size="lg"
+              className="mt-4 h-12 sm:h-14 px-8 text-sm sm:text-base w-full sm:w-auto interactive-scale"
+            >
+              {isAnalyzing && analyzingCategory === quickAddCategory ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Analyzing photo...
+                </>
+              ) : (
+                <>
+                  <Camera className="h-4 w-4 mr-2" />
+                  Add Photo to {MEAL_CATEGORIES.find((cat) => cat.key === quickAddCategory)?.label}
+                </>
+              )}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Daily Totals */}
       <Card className="mb-6 border-border/50 bg-card/50 backdrop-blur-sm animate-slide-up animation-delay-75">
@@ -320,30 +410,8 @@ export function MealTracker() {
             </div>
             <h3 className="text-base font-semibold mb-1">No meals logged</h3>
             <p className="text-muted-foreground text-sm px-4">
-              Tap + on a meal category below to snap a photo
+              Upload your first meal photo above to start tracking.
             </p>
-          </div>
-
-          {/* Still show category sections with add buttons */}
-          <div className="space-y-3 stagger-children">
-            {MEAL_CATEGORIES.map((cat) => (
-              <div key={cat.key} className="flex items-center justify-between py-2 px-1">
-                <span className="text-sm font-medium text-muted-foreground">{cat.label}</span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleAddMeal(cat.key)}
-                  disabled={isAnalyzing}
-                  className="h-8 w-8 p-0 hover:bg-primary/10 text-muted-foreground hover:text-primary"
-                >
-                  {isAnalyzing && analyzingCategory === cat.key ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Plus className="h-4 w-4" />
-                  )}
-                </Button>
-              </div>
-            ))}
           </div>
         </div>
       ) : (
@@ -400,8 +468,10 @@ export function MealTracker() {
         <MealReviewModal
           description={reviewData.description}
           macros={reviewData.macros}
+          analysisContext={reviewData.context}
           category={pendingCategory}
           onConfirm={handleConfirmMeal}
+          isSaving={isSavingMeal}
           onCancel={() => setReviewData(null)}
         />
       )}

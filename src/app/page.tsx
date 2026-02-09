@@ -456,7 +456,7 @@ export default function Home() {
 
         {/* Meals Tab */}
         {activeTab === 'meals' && (
-          <div className="max-w-lg mx-auto pt-6">
+          <div className="w-full max-w-3xl mx-auto pt-6">
             <MealTracker />
           </div>
         )}

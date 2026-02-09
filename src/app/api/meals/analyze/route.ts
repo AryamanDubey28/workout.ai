@@ -17,6 +17,8 @@ export async function POST(request: NextRequest) {
 
     const formData = await request.formData();
     const image = formData.get('image') as File | null;
+    const contextRaw = formData.get('context');
+    const context = typeof contextRaw === 'string' ? contextRaw.trim().slice(0, 500) : '';
 
     if (!image) {
       return NextResponse.json({ error: 'No image provided' }, { status: 400 });
@@ -32,7 +34,7 @@ export async function POST(request: NextRequest) {
       messages: [
         {
           role: 'system',
-          content: `You are a nutrition analysis assistant. Analyze the food in the image and provide an estimated macro breakdown. Be concise with the description. Always respond with valid JSON in this exact format:
+          content: `You are a nutrition analysis assistant. Analyze the food in the image and provide an estimated macro breakdown. Be concise with the description. If the user includes context text, use it to improve the estimate while still grounding your answer in the image. Always respond with valid JSON in this exact format:
 {
   "description": "Brief description of the meal (max 60 chars)",
   "macros": {
@@ -56,7 +58,9 @@ Only return the JSON, no other text.`,
             },
             {
               type: 'text',
-              text: 'Analyze this meal and estimate the macronutrient breakdown. Return only valid JSON.',
+              text: context
+                ? `Analyze this meal and estimate the macronutrient breakdown.\nUser context: ${context}\nReturn only valid JSON.`
+                : 'Analyze this meal and estimate the macronutrient breakdown. Return only valid JSON.',
             },
           ],
         },
