@@ -26,11 +26,18 @@ export async function initDatabase() {
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         name VARCHAR(255),
+        note TEXT,
         date TIMESTAMP NOT NULL,
         exercises JSONB NOT NULL DEFAULT '[]',
         created_at TIMESTAMP DEFAULT NOW(),
         updated_at TIMESTAMP DEFAULT NOW()
       );
+    `;
+
+    // Add newly introduced columns for existing databases
+    await sql`
+      ALTER TABLE workouts
+      ADD COLUMN IF NOT EXISTS note TEXT;
     `;
 
     // Create index on user_id for faster queries
@@ -448,15 +455,16 @@ export async function getUserExerciseNames(userId: string): Promise<string[]> {
 export async function createWorkout(userId: string, workout: Workout): Promise<Workout | null> {
   try {
     const result = await sql`
-      INSERT INTO workouts (id, user_id, name, date, exercises, created_at, updated_at)
-      VALUES (${workout.id}, ${userId}, ${workout.name || null}, ${workout.date.toISOString()}, ${JSON.stringify(workout.exercises)}, ${workout.createdAt.toISOString()}, ${workout.updatedAt.toISOString()})
-      RETURNING id, name, date, exercises, created_at, updated_at;
+      INSERT INTO workouts (id, user_id, name, note, date, exercises, created_at, updated_at)
+      VALUES (${workout.id}, ${userId}, ${workout.name || null}, ${workout.note || null}, ${workout.date.toISOString()}, ${JSON.stringify(workout.exercises)}, ${workout.createdAt.toISOString()}, ${workout.updatedAt.toISOString()})
+      RETURNING id, name, note, date, exercises, created_at, updated_at;
     `;
     
     const row = result.rows[0];
     return {
       id: row.id,
       name: row.name,
+      note: row.note || undefined,
       date: new Date(row.date),
       exercises: row.exercises,
       createdAt: new Date(row.created_at),
@@ -472,7 +480,7 @@ export async function createWorkout(userId: string, workout: Workout): Promise<W
 export async function getUserWorkouts(userId: string): Promise<Workout[]> {
   try {
     const result = await sql`
-      SELECT id, name, date, exercises, created_at, updated_at
+      SELECT id, name, note, date, exercises, created_at, updated_at
       FROM workouts
       WHERE user_id = ${userId}
       ORDER BY date DESC, created_at DESC;
@@ -481,6 +489,7 @@ export async function getUserWorkouts(userId: string): Promise<Workout[]> {
     return result.rows.map(row => ({
       id: row.id,
       name: row.name,
+      note: row.note || undefined,
       date: new Date(row.date),
       exercises: row.exercises,
       createdAt: new Date(row.created_at),
@@ -495,25 +504,41 @@ export async function getUserWorkouts(userId: string): Promise<Workout[]> {
 // Update an existing workout
 export async function updateWorkout(userId: string, workoutId: string, workout: Partial<Workout>): Promise<Workout | null> {
   try {
+    const existingResult = await sql`
+      SELECT id, name, note, date, exercises, created_at, updated_at
+      FROM workouts
+      WHERE id = ${workoutId} AND user_id = ${userId}
+      LIMIT 1;
+    `;
+
+    if (existingResult.rowCount === 0) {
+      return null; // Workout not found or not owned by user
+    }
+
+    const existing = existingResult.rows[0];
+    const name = workout.name !== undefined ? workout.name : existing.name;
+    const note = workout.note !== undefined ? workout.note : existing.note;
+    const date = workout.date !== undefined ? workout.date : new Date(existing.date);
+    const exercises = workout.exercises !== undefined ? workout.exercises : existing.exercises;
+    const updatedAt = workout.updatedAt ? workout.updatedAt.toISOString() : new Date().toISOString();
+
     const result = await sql`
       UPDATE workouts 
       SET 
-        name = ${workout.name || null},
-        date = ${workout.date ? workout.date.toISOString() : null},
-        exercises = ${workout.exercises ? JSON.stringify(workout.exercises) : null},
-        updated_at = ${workout.updatedAt ? workout.updatedAt.toISOString() : new Date().toISOString()}
+        name = ${name || null},
+        note = ${note || null},
+        date = ${date.toISOString()},
+        exercises = ${JSON.stringify(exercises)},
+        updated_at = ${updatedAt}
       WHERE id = ${workoutId} AND user_id = ${userId}
-      RETURNING id, name, date, exercises, created_at, updated_at;
+      RETURNING id, name, note, date, exercises, created_at, updated_at;
     `;
-    
-    if (result.rowCount === 0) {
-      return null; // Workout not found or not owned by user
-    }
     
     const row = result.rows[0];
     return {
       id: row.id,
       name: row.name,
+      note: row.note || undefined,
       date: new Date(row.date),
       exercises: row.exercises,
       createdAt: new Date(row.created_at),

@@ -5,6 +5,14 @@ import { Send, Loader2, MessageCircle, Bot, User as UserIcon } from 'lucide-reac
 import { Button } from '@/components/ui/button';
 import { ChatMessage } from '@/types/meal';
 
+const STARTER_SUGGESTIONS = [
+  'How has my progress been?',
+  'Suggest a workout split',
+  'Tips for better recovery',
+  'How can I improve my push day strength?',
+  'Critique my leg workouts',
+];
+
 export function ChatView() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -110,11 +118,7 @@ export function ChatView() {
               Ask me anything about your workouts, training advice, or fitness goals. I have context of your recent sessions.
             </p>
             <div className="mt-6 flex flex-wrap gap-2 justify-center px-4 animate-slide-up animation-delay-500">
-              {[
-                'How has my progress been?',
-                'Suggest a workout split',
-                'Tips for better recovery',
-              ].map((suggestion) => (
+              {STARTER_SUGGESTIONS.map((suggestion) => (
                 <button
                   key={suggestion}
                   onClick={() => {

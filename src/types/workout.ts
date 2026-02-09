@@ -14,6 +14,7 @@ export interface Exercise {
 export interface Workout {
   id: string;
   name?: string;
+  note?: string;
   date: Date;
   exercises: Exercise[];
   createdAt: Date;
