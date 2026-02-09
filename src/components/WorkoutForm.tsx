@@ -33,6 +33,7 @@ interface WorkoutFormProps {
 
 export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
   const [name, setName] = useState(workout?.name || '');
+  const [note, setNote] = useState(workout?.note || '');
   const [workoutDate, setWorkoutDate] = useState(workout?.date || new Date());
 
   const sensors = useSensors(
@@ -95,6 +96,7 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
   const checkForUnsavedChanges = useCallback(() => {
     if (workout) {
       if (name !== (workout.name || '')) return true;
+      if (note !== (workout.note || '')) return true;
       if (workoutDate.getTime() !== workout.date.getTime()) return true;
       if (exercises.length !== workout.exercises.length) return true;
       return exercises.some((exercise, index) => {
@@ -115,6 +117,7 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
     } else {
       return (
         name.trim() !== '' ||
+        note.trim() !== '' ||
         exercises.some(exercise =>
           exercise.name.trim() !== '' ||
           exercise.weight.trim() !== '' ||
@@ -127,7 +130,7 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
         )
       );
     }
-  }, [exercises, name, workoutDate, workout]);
+  }, [exercises, name, note, workoutDate, workout]);
 
   // Load draft on mount (if present). If editing, it will use the workout id key; if creating, uses "new" key.
   useEffect(() => {
@@ -137,6 +140,9 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
         const draft = JSON.parse(raw);
         if (typeof draft?.name === 'string') {
           setName(draft.name);
+        }
+        if (typeof draft?.note === 'string') {
+          setNote(draft.note);
         }
         if (draft?.workoutDate) {
           setWorkoutDate(new Date(draft.workoutDate));
@@ -160,6 +166,7 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
       try {
         const draft = {
           name,
+          note,
           workoutDate: workoutDate.toISOString(),
           exercises,
           updatedAt: new Date().toISOString(),
@@ -180,7 +187,7 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
         clearTimeout(saveTimeoutRef.current);
       }
     };
-  }, [name, workoutDate, exercises, draftStorageKey]);
+  }, [name, note, workoutDate, exercises, draftStorageKey]);
 
   // Flush draft when the page becomes hidden (backgrounded)
   useEffect(() => {
@@ -189,6 +196,7 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
         try {
           const draft = {
             name,
+            note,
             workoutDate: workoutDate.toISOString(),
             exercises,
             updatedAt: new Date().toISOString(),
@@ -202,6 +210,7 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
           try {
             const payload = {
               name: name || workout.name || undefined,
+              note: note.trim(),
               date: workoutDate, // use the selected date
               exercises,
             };
@@ -220,7 +229,7 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [name, workoutDate, exercises, draftStorageKey, workout?.id, workout?.name]);
+  }, [name, note, workoutDate, exercises, draftStorageKey, workout?.id, workout?.name]);
 
   const clearDraft = () => {
     try {
@@ -242,6 +251,7 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
         setIsSaving(true);
         const payload = {
           name: name || workout.name || undefined,
+          note: note.trim(),
           date: workoutDate, // use the selected date
           exercises,
         };
@@ -269,7 +279,7 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
         clearTimeout(serverSaveTimeoutRef.current);
       }
     };
-  }, [name, workoutDate, exercises, workout?.id, workout?.name, checkForUnsavedChanges]);
+  }, [name, note, workoutDate, exercises, workout?.id, workout?.name, checkForUnsavedChanges]);
 
   useEffect(() => {
     setHasUnsavedChanges(checkForUnsavedChanges());
@@ -330,10 +340,11 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
         // Filter out empty exercises for saving
         const filteredExercises = exercises.filter(ex => ex.name.trim());
         
-        if (filteredExercises.length > 0 || name.trim()) {
+        if (filteredExercises.length > 0 || name.trim() || note.trim()) {
           const workoutToSave: Workout = {
             id: workout?.id || crypto.randomUUID(),
             name: name.trim() || undefined,
+            note: note.trim(),
             date: workoutDate,
             exercises: filteredExercises,
             createdAt: workout?.createdAt || new Date(),
@@ -451,6 +462,13 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
                   </button>
                 )}
               </div>
+              <textarea
+                placeholder="Workout note (optional)"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                rows={2}
+                className="mt-3 w-full resize-none rounded-lg border border-border/60 bg-background/60 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+              />
             </div>
             <div className="flex gap-2 items-center">
               <div className="text-xs text-muted-foreground mr-2 flex items-center gap-1">

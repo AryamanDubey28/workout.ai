@@ -5,9 +5,23 @@ import { Send, Loader2, MessageCircle, Bot, User as UserIcon } from 'lucide-reac
 import { Button } from '@/components/ui/button';
 import { ChatMessage } from '@/types/meal';
 
+const FALLBACK_STARTERS = [
+  'How has my progress been?',
+  'Suggest a workout split',
+  'Tips for better recovery',
+  'How can I improve consistency?',
+  'What should I focus on this week?',
+  'How do I optimize rest days?',
+];
+
+function pickRandomStarters(count = 3) {
+  return [...FALLBACK_STARTERS].sort(() => Math.random() - 0.5).slice(0, count);
+}
+
 export function ChatView() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
+  const [suggestions, setSuggestions] = useState<string[]>(() => pickRandomStarters());
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -20,6 +34,46 @@ export function ChatView() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const controller = new AbortController();
+
+    const loadSuggestions = async () => {
+      try {
+        const res = await fetch('/api/chat/starters', {
+          method: 'POST',
+          cache: 'no-store',
+          signal: controller.signal,
+        });
+
+        if (!res.ok) {
+          throw new Error('Failed to load starters');
+        }
+
+        const data = await res.json();
+        if (!isMounted) return;
+
+        if (Array.isArray(data?.suggestions) && data.suggestions.length > 0) {
+          setSuggestions(data.suggestions.slice(0, 3));
+          return;
+        }
+
+        setSuggestions(pickRandomStarters());
+      } catch (starterError) {
+        if (!isMounted || controller.signal.aborted) return;
+        console.error('Starter loading error:', starterError);
+        setSuggestions(pickRandomStarters());
+      }
+    };
+
+    loadSuggestions();
+
+    return () => {
+      isMounted = false;
+      controller.abort();
+    };
+  }, []);
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -110,11 +164,7 @@ export function ChatView() {
               Ask me anything about your workouts, training advice, or fitness goals. I have context of your recent sessions.
             </p>
             <div className="mt-6 flex flex-wrap gap-2 justify-center px-4 animate-slide-up animation-delay-500">
-              {[
-                'How has my progress been?',
-                'Suggest a workout split',
-                'Tips for better recovery',
-              ].map((suggestion) => (
+              {suggestions.map((suggestion) => (
                 <button
                   key={suggestion}
                   onClick={() => {

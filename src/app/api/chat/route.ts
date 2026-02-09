@@ -21,6 +21,7 @@ function formatWorkoutsForContext(workouts: any[]): string {
         day: 'numeric',
       });
       const name = w.name || 'Untitled';
+      const note = typeof w.note === 'string' ? w.note.trim() : '';
       const exercises = w.exercises
         .map((ex: any) => {
           const weight = ex.weight === 'BW' ? 'Bodyweight' : ex.weight ? `${ex.weight}kg` : '';
@@ -35,7 +36,8 @@ function formatWorkoutsForContext(workouts: any[]): string {
           return `  - ${ex.name} ${weight} ${ex.sets || 0}x${ex.reps || 0}`;
         })
         .join('\n');
-      return `${date} - ${name}:\n${exercises}`;
+      const noteLine = note ? `  Note: ${note}\n` : '';
+      return `${date} - ${name}:\n${noteLine}${exercises}`;
     })
     .join('\n\n');
 }
@@ -65,8 +67,31 @@ function formatGoalForContext(goal: any): string {
   return `Goal: ${goal.goalType} - ${goal.calories} cal, ${goal.protein}g protein, ${goal.carbs}g carbs, ${goal.fat}g fat daily`;
 }
 
+function logOpenAIError(context: string, error: any, meta?: Record<string, any>) {
+  const err = error ?? {};
+  const details = {
+    context,
+    ...meta,
+    name: err?.name,
+    message: err?.message,
+    status: err?.status,
+    code: err?.code,
+    type: err?.type,
+    request_id: err?.request_id ?? err?.headers?.['x-request-id'],
+    error_message: err?.error?.message,
+    error_type: err?.error?.type,
+    error_code: err?.error?.code,
+  };
+
+  console.error('OpenAI error:', details);
+  if (err?.cause) {
+    console.error('OpenAI error cause:', err.cause);
+  }
+}
+
 // POST /api/chat - Chat with AI about workouts
 export async function POST(request: NextRequest) {
+  let logMeta: Record<string, any> | undefined;
   try {
     const openai = getOpenAI();
     const session = await getSessionFromCookie();
@@ -81,6 +106,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Messages array required' }, { status: 400 });
     }
 
+    if (!process.env.OPENAI_API_KEY) {
+      console.error('OpenAI API key is missing');
+      return NextResponse.json({ error: 'OpenAI API key not configured' }, { status: 500 });
+    }
+
+    logMeta = {
+      userId: session.userId,
+      messageCount: messages.length,
+      messageRoles: messages.map((m: any) => m?.role).filter(Boolean),
+    };
+
     // Fetch context in parallel
     const todayKey = new Date().toISOString().split('T')[0];
     const [workouts, todayMeals, macroGoal] = await Promise.all([
@@ -93,7 +129,7 @@ export async function POST(request: NextRequest) {
     const mealContext = formatMealsForContext(todayMeals);
     const goalContext = formatGoalForContext(macroGoal);
 
-    const systemMessage = `You are a knowledgeable fitness and workout assistant for ${session.name}. You have access to their recent workout history, today's meals, and their nutrition goals. You can provide advice on training, form, programming, recovery, and nutrition.
+    const systemMessage = `You are a knowledgeable fitness and workout assistant for ${session.name}. You have access to their recent workout history (including workout notes), today's meals, and their nutrition goals. You can provide advice on training, form, programming, recovery, and nutrition.
 
 Here are their recent workouts:
 ${workoutContext}
@@ -103,10 +139,18 @@ ${mealContext}
 
 ${goalContext}
 
-Be concise, friendly, and helpful. Reference specific workouts, meals, and goals when relevant. If they ask about progress, analyze trends in their data. If they ask about nutrition, factor in their goal type and remaining macros for the day. Keep responses focused and practical.`;
+Be concise, friendly, and helpful. Reference specific workouts, meals, and goals when relevant. If they ask about progress, analyze trends in their data. If they ask about nutrition, factor in their goal type and remaining macros for the day. Keep responses focused and practical.
 
+Formatting rules: Output plain text only. Do not use Markdown or special characters for formatting. Avoid headings, bullet points, bold/italics, code blocks, and lists with dashes. Do not use these characters for formatting: # * \` - >. If you need structure, use short labels like "Strength and performance trends:" followed by full sentences, or use simple numbered items like "1." "2." "3." with no extra symbols.`;
+
+    const model = 'gpt-5.2';
+    logMeta = {
+      ...logMeta,
+      model,
+      systemMessageLength: systemMessage.length,
+    };
     const response = await openai.chat.completions.create({
-      model: 'gpt-5.2',
+      model,
       messages: [
         { role: 'system', content: systemMessage },
         ...messages.map((m: any) => ({
@@ -114,7 +158,6 @@ Be concise, friendly, and helpful. Reference specific workouts, meals, and goals
           content: m.content,
         })),
       ],
-      max_tokens: 500,
       temperature: 0.7,
     });
 
@@ -125,7 +168,7 @@ Be concise, friendly, and helpful. Reference specific workouts, meals, and goals
 
     return NextResponse.json({ message: content });
   } catch (error: any) {
-    console.error('Error in chat:', error);
+    logOpenAIError('chat', error, logMeta);
 
     if (error?.code === 'invalid_api_key' || error?.status === 401) {
       return NextResponse.json({ error: 'Invalid OpenAI API key' }, { status: 401 });

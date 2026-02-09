@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSessionFromCookie } from '@/lib/auth';
-import { deleteWorkout, updateWorkout } from '@/lib/db';
+import { deleteWorkout, initDatabase, updateWorkout } from '@/lib/db';
 import { Workout } from '@/types/workout';
 
 // DELETE /api/workouts/[id] - Delete a specific workout
@@ -17,6 +17,8 @@ export async function DELETE(
         { status: 401 }
       );
     }
+
+    await initDatabase();
 
     const { id: workoutId } = await params;
 
@@ -64,6 +66,8 @@ export async function PUT(
       );
     }
 
+    await initDatabase();
+
     const { id: workoutId } = await params;
 
     if (!workoutId) {
@@ -75,20 +79,57 @@ export async function PUT(
 
     const body: Partial<Workout> = await request.json();
 
+    const hasName = Object.prototype.hasOwnProperty.call(body, 'name');
+    const hasDate = Object.prototype.hasOwnProperty.call(body, 'date');
+    const hasExercises = Object.prototype.hasOwnProperty.call(body, 'exercises');
+    const hasNote = Object.prototype.hasOwnProperty.call(body, 'note');
+
     // Validate that at least one field is being updated
-    if (!body.name && !body.date && !body.exercises) {
+    if (!hasName && !hasDate && !hasExercises && !hasNote) {
       return NextResponse.json(
         { error: 'At least one field must be provided for update' },
         { status: 400 }
       );
     }
 
-    // Convert date string to Date object if provided
-    const workoutUpdates: Partial<Workout> = {
-      ...body,
-      date: body.date ? new Date(body.date) : undefined,
-      updatedAt: new Date(),
-    };
+    const workoutUpdates: Partial<Workout> = { updatedAt: new Date() };
+
+    if (hasName) {
+      workoutUpdates.name = typeof body.name === 'string' ? body.name.trim() : '';
+    }
+
+    if (hasDate) {
+      if (!body.date) {
+        return NextResponse.json(
+          { error: 'Invalid date provided' },
+          { status: 400 }
+        );
+      }
+
+      const parsedDate = new Date(body.date);
+      if (Number.isNaN(parsedDate.getTime())) {
+        return NextResponse.json(
+          { error: 'Invalid date provided' },
+          { status: 400 }
+        );
+      }
+
+      workoutUpdates.date = parsedDate;
+    }
+
+    if (hasExercises) {
+      if (!Array.isArray(body.exercises)) {
+        return NextResponse.json(
+          { error: 'Exercises must be an array' },
+          { status: 400 }
+        );
+      }
+      workoutUpdates.exercises = body.exercises;
+    }
+
+    if (hasNote) {
+      workoutUpdates.note = typeof body.note === 'string' ? body.note.trim() : '';
+    }
 
     const updatedWorkout = await updateWorkout(session.userId, workoutId, workoutUpdates);
     

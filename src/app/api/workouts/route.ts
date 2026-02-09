@@ -15,6 +15,8 @@ export async function GET() {
       );
     }
 
+    await initDatabase();
+
     const workouts = await getUserWorkouts(session.userId);
     
     return NextResponse.json({ workouts });
@@ -53,8 +55,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Convert date string to Date object if needed
+    const workoutName = typeof body.name === 'string' ? body.name.trim() : '';
+    const workoutNote = typeof body.note === 'string' ? body.note.trim() : '';
+
     const workout: Workout = {
       ...body,
+      name: workoutName || undefined,
+      note: workoutNote || undefined,
       date: new Date(body.date),
       createdAt: new Date(body.createdAt),
       updatedAt: new Date(body.updatedAt),
