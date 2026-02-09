@@ -485,7 +485,7 @@ export function UserProfile({ user, onLogout, onManagePresets }: UserProfileProp
       {/* Version info */}
       <div className="flex justify-center mt-4 animate-fade-in animation-delay-700">
         <span className="text-xs text-muted-foreground/60 font-mono">
-          v2.1.0
+          v2.1.1
         </span>
       </div>
     </div>
