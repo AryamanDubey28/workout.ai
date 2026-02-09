@@ -67,13 +67,23 @@ function formatGoalForContext(goal: any): string {
   return `Goal: ${goal.goalType} - ${goal.calories} cal, ${goal.protein}g protein, ${goal.carbs}g carbs, ${goal.fat}g fat daily`;
 }
 
+function formatBodyweightForContext(rawWeight: unknown): string {
+  const weightLbs = Number(rawWeight);
+  if (!Number.isFinite(weightLbs)) return 'unknown';
+
+  const weightKg = weightLbs * 0.45359237;
+  const lbs = Number.isInteger(weightLbs) ? `${weightLbs}` : weightLbs.toFixed(1);
+  const kg = weightKg.toFixed(1);
+  return `${lbs} lb (${kg} kg)`;
+}
+
 function formatUserProfileForContext(user: any, goal: any): string {
   if (!user) {
     return 'Age: unknown. Weight: unknown. Height: not set. Sex: not set. Activity level: not set.';
   }
 
   const age = user.age ?? 'unknown';
-  const weight = user.weight != null ? `${user.weight} kg` : 'unknown';
+  const weight = formatBodyweightForContext(user.weight);
   const height = goal?.heightCm ? `${goal.heightCm} cm` : 'not set';
   const sex = goal?.sex || 'not set';
   const activityLevel = goal?.activityLevel || 'not set';
@@ -157,6 +167,7 @@ export async function POST(request: NextRequest) {
     const systemMessage = `You are a knowledgeable fitness and workout assistant for ${session.name}. You have access to their profile metrics (age, weight, height, sex, activity level), recent workout history (including workout notes), today's meals, and their nutrition goals. You can provide advice on training, form, programming, recovery, and nutrition.
 
 Current date context: ${currentDateUtcLong} (UTC date key: ${todayKey}, UTC timestamp: ${currentDateUtcIso}). Use this to reason about recency and interpret terms like today, yesterday, and last workout.
+Unit rules: bodyweight in the user profile is stored in pounds (lb). Workout exercise loads are stored in kilograms (kg), unless marked as Bodyweight/BW. Keep those units accurate in responses.
 
 User profile:
 ${userProfileContext}

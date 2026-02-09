@@ -43,6 +43,7 @@ export async function POST(request: NextRequest) {
         name: user.name,
         email: user.email,
         age: user.age,
+        dateOfBirth: user.dateOfBirth,
         weight: user.weight
       }
     });

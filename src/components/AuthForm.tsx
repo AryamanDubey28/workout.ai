@@ -29,7 +29,7 @@ export function AuthForm({ onAuthSuccess }: AuthFormProps) {
     secretPassword: '',
     name: '',
     email: '',
-    age: 0,
+    dateOfBirth: '',
     weight: 0,
     password: ''
   });
@@ -90,7 +90,7 @@ export function AuthForm({ onAuthSuccess }: AuthFormProps) {
       console.log('Registration data:', { 
         name: registerData.name, 
         email: registerData.email, 
-        age: registerData.age, 
+        dateOfBirth: registerData.dateOfBirth,
         weight: registerData.weight,
         hasSecretPassword: !!registerData.secretPassword,
         passwordLength: registerData.password.length 
@@ -331,23 +331,20 @@ export function AuthForm({ onAuthSuccess }: AuthFormProps) {
                       </div>
                     </div>
 
-                    {/* Age and Weight */}
+                    {/* Date of Birth and Weight */}
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-3">
-                        <Label htmlFor="register-age" className="text-sm font-medium flex items-center gap-2">
+                        <Label htmlFor="register-dob" className="text-sm font-medium flex items-center gap-2">
                           <Calendar className="h-4 w-4 text-muted-foreground" />
-                          Age
+                          Date of Birth
                         </Label>
                         <div className="relative group">
                           <Input
-                            id="register-age"
-                            type="number"
-                            placeholder="25"
-                            value={registerData.age || ''}
-                            onChange={(e) => setRegisterData({...registerData, age: parseInt(e.target.value) || 0})}
+                            id="register-dob"
+                            type="date"
+                            value={registerData.dateOfBirth}
+                            onChange={(e) => setRegisterData({...registerData, dateOfBirth: e.target.value})}
                             required
-                            min="13"
-                            max="120"
                             disabled={isLoading}
                             className="h-12 pl-4 bg-background/50 backdrop-blur-sm border-border/60 focus:border-primary/50 focus:bg-background/80 transition-all duration-200 group-hover:border-border/80"
                           />

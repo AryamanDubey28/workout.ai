@@ -4,6 +4,69 @@ import { Workout } from '@/types/workout';
 import { Meal, Macros, MacroGoal } from '@/types/meal';
 import bcrypt from 'bcryptjs';
 
+function parseDateOnly(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+
+  if (
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  return parsed;
+}
+
+function toDateOnlyString(date: Date): string {
+  return date.toISOString().split('T')[0];
+}
+
+function calculateAgeFromDateOfBirth(dateOfBirth: Date, now: Date = new Date()): number {
+  let age = now.getUTCFullYear() - dateOfBirth.getUTCFullYear();
+  const monthDiff = now.getUTCMonth() - dateOfBirth.getUTCMonth();
+
+  if (
+    monthDiff < 0 ||
+    (monthDiff === 0 && now.getUTCDate() < dateOfBirth.getUTCDate())
+  ) {
+    age -= 1;
+  }
+
+  return age;
+}
+
+function mapUserRow(row: any): User {
+  const dateOfBirth =
+    typeof row?.date_of_birth === 'string'
+      ? parseDateOnly(row.date_of_birth)
+      : null;
+
+  const fallbackAge = Number(row?.age);
+  const age = dateOfBirth
+    ? calculateAgeFromDateOfBirth(dateOfBirth)
+    : Number.isFinite(fallbackAge)
+      ? fallbackAge
+      : 0;
+
+  return {
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    age,
+    dateOfBirth: dateOfBirth ? toDateOnlyString(dateOfBirth) : undefined,
+    weight: Number(row.weight),
+    password: row.password,
+    created_at: row.created_at ? new Date(row.created_at) : new Date(),
+  };
+}
+
 // Initialize the database tables
 export async function initDatabase() {
   try {
@@ -14,10 +77,23 @@ export async function initDatabase() {
         name VARCHAR(255) NOT NULL,
         email VARCHAR(255) UNIQUE NOT NULL,
         age INTEGER NOT NULL,
+        date_of_birth DATE,
         weight DECIMAL(5,2) NOT NULL,
         password VARCHAR(255) NOT NULL,
         created_at TIMESTAMP DEFAULT NOW()
       );
+    `;
+
+    await sql`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS date_of_birth DATE;
+    `;
+
+    // Backfill legacy users with an approximate DOB so age can auto-update over time.
+    await sql`
+      UPDATE users
+      SET date_of_birth = (CURRENT_DATE - (age::text || ' years')::interval)::date
+      WHERE date_of_birth IS NULL;
     `;
 
     // Create workouts table
@@ -147,14 +223,21 @@ export async function initDatabase() {
 export async function createUser(userData: CreateUserData): Promise<User | null> {
   try {
     const hashedPassword = await bcrypt.hash(userData.password, 12);
+    const parsedDob = parseDateOnly(userData.dateOfBirth);
+
+    if (!parsedDob) {
+      throw new Error('Invalid date of birth format');
+    }
+
+    const computedAge = calculateAgeFromDateOfBirth(parsedDob);
     
     const result = await sql`
-      INSERT INTO users (name, email, age, weight, password)
-      VALUES (${userData.name}, ${userData.email}, ${userData.age}, ${userData.weight}, ${hashedPassword})
-      RETURNING id, name, email, age, weight, created_at;
+      INSERT INTO users (name, email, age, date_of_birth, weight, password)
+      VALUES (${userData.name}, ${userData.email}, ${computedAge}, ${toDateOnlyString(parsedDob)}, ${userData.weight}, ${hashedPassword})
+      RETURNING id, name, email, age, date_of_birth::text AS date_of_birth, weight, created_at;
     `;
     
-    return result.rows[0] as User;
+    return mapUserRow(result.rows[0]);
   } catch (error) {
     console.error('Error creating user:', error);
     return null;
@@ -165,12 +248,13 @@ export async function createUser(userData: CreateUserData): Promise<User | null>
 export async function getUserByEmail(email: string): Promise<User | null> {
   try {
     const result = await sql`
-      SELECT id, name, email, age, weight, password, created_at
+      SELECT id, name, email, age, date_of_birth::text AS date_of_birth, weight, password, created_at
       FROM users
       WHERE email = ${email};
     `;
     
-    return result.rows[0] as User || null;
+    if (result.rows.length === 0) return null;
+    return mapUserRow(result.rows[0]);
   } catch (error) {
     console.error('Error getting user by email:', error);
     return null;
@@ -181,12 +265,13 @@ export async function getUserByEmail(email: string): Promise<User | null> {
 export async function getUserById(id: string): Promise<User | null> {
   try {
     const result = await sql`
-      SELECT id, name, email, age, weight, created_at
+      SELECT id, name, email, age, date_of_birth::text AS date_of_birth, weight, created_at
       FROM users
       WHERE id = ${id};
     `;
     
-    return result.rows[0] as User || null;
+    if (result.rows.length === 0) return null;
+    return mapUserRow(result.rows[0]);
   } catch (error) {
     console.error('Error getting user by ID:', error);
     return null;

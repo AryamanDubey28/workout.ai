@@ -5,13 +5,25 @@ import { RegisterData } from '@/types/user';
 
 const REGISTRATION_SECRET = process.env.REGISTRATION_SECRET || 'change-this-secret';
 
+function calculateAgeFromDateOfBirth(dateOfBirth: Date, now: Date = new Date()): number {
+  let age = now.getUTCFullYear() - dateOfBirth.getUTCFullYear();
+  const monthDiff = now.getUTCMonth() - dateOfBirth.getUTCMonth();
+  if (
+    monthDiff < 0 ||
+    (monthDiff === 0 && now.getUTCDate() < dateOfBirth.getUTCDate())
+  ) {
+    age -= 1;
+  }
+  return age;
+}
+
 export async function POST(request: NextRequest) {
   try {
     // Initialize database if not already done
     await initDatabase();
     
     const body: RegisterData = await request.json();
-    const { secretPassword, name, email, age, weight, password } = body;
+    const { secretPassword, name, email, dateOfBirth, weight, password } = body;
 
     // Validate registration secret
     if (secretPassword !== REGISTRATION_SECRET) {
@@ -22,7 +34,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate required fields
-    if (!name || !email || !age || !weight || !password) {
+    if (!name || !email || !dateOfBirth || !weight || !password) {
       return NextResponse.json(
         { error: 'All fields are required' },
         { status: 400 }
@@ -38,6 +50,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const parsedDob = new Date(dateOfBirth);
+    if (Number.isNaN(parsedDob.getTime())) {
+      return NextResponse.json(
+        { error: 'Invalid date of birth' },
+        { status: 400 }
+      );
+    }
+
+    const age = calculateAgeFromDateOfBirth(parsedDob);
+    if (age < 13 || age > 120) {
+      return NextResponse.json(
+        { error: 'Date of birth must produce an age between 13 and 120' },
+        { status: 400 }
+      );
+    }
+
     // Check if email already exists
     if (await emailExists(email)) {
       return NextResponse.json(
@@ -47,7 +75,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Create user
-    const user = await createUser({ name, email, age, weight, password });
+    const user = await createUser({ name, email, dateOfBirth, weight, password });
     
     if (!user) {
       return NextResponse.json(
@@ -67,6 +95,7 @@ export async function POST(request: NextRequest) {
         name: user.name,
         email: user.email,
         age: user.age,
+        dateOfBirth: user.dateOfBirth,
         weight: user.weight
       }
     });

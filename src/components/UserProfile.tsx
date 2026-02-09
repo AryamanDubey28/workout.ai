@@ -183,6 +183,14 @@ export function UserProfile({ user, onLogout }: UserProfileProps) {
               <span className="text-foreground/80 truncate">{user.email}</span>
             </div>
 
+            {user.dateOfBirth && (
+              <div className="flex items-center gap-3 p-3 rounded-lg hover:bg-muted/50 transition-colors duration-200">
+                <Calendar className="h-4 w-4 text-muted-foreground" />
+                <span className="font-medium min-w-[60px]">DOB:</span>
+                <span className="text-foreground/80">{new Date(`${user.dateOfBirth}T00:00:00`).toLocaleDateString()}</span>
+              </div>
+            )}
+
             <div className="flex items-center gap-3 p-3 rounded-lg hover:bg-muted/50 transition-colors duration-200">
               <Calendar className="h-4 w-4 text-muted-foreground" />
               <span className="font-medium min-w-[60px]">Age:</span>
@@ -456,7 +464,7 @@ export function UserProfile({ user, onLogout }: UserProfileProps) {
       {/* Version info */}
       <div className="flex justify-center mt-4 animate-fade-in animation-delay-700">
         <span className="text-xs text-muted-foreground/60 font-mono">
-          v2.0.0
+          v2.0.1
         </span>
       </div>
     </div>
