@@ -5,7 +5,7 @@ import { Camera, ChevronLeft, ChevronRight, Loader2, UtensilsCrossed, Plus } fro
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { MealCard } from '@/components/MealCard';
-import { Meal, Macros } from '@/types/meal';
+import { Meal, Macros, MacroGoal } from '@/types/meal';
 
 function formatDateKey(date: Date): string {
   return date.toISOString().split('T')[0];
@@ -26,14 +26,40 @@ function formatDateDisplay(date: Date): string {
   });
 }
 
+function ProgressBar({ current, target, color }: { current: number; target: number; color: string }) {
+  const pct = target > 0 ? Math.min((current / target) * 100, 100) : 0;
+  const isOver = current > target && target > 0;
+  return (
+    <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden mt-1">
+      <div
+        className={`h-full rounded-full transition-all duration-500 ${isOver ? 'bg-destructive' : color}`}
+        style={{ width: `${pct}%` }}
+      />
+    </div>
+  );
+}
+
 export function MealTracker() {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [meals, setMeals] = useState<Meal[]>([]);
   const [totals, setTotals] = useState<Macros>({ calories: 0, protein: 0, carbs: 0, fat: 0 });
+  const [goal, setGoal] = useState<MacroGoal | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const loadGoal = useCallback(async () => {
+    try {
+      const res = await fetch('/api/goals');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.goal) setGoal(data.goal);
+      }
+    } catch (err) {
+      console.error('Failed to load goal:', err);
+    }
+  }, []);
 
   const loadMeals = useCallback(async () => {
     setIsLoading(true);
@@ -57,6 +83,10 @@ export function MealTracker() {
       setIsLoading(false);
     }
   }, [selectedDate]);
+
+  useEffect(() => {
+    loadGoal();
+  }, [loadGoal]);
 
   useEffect(() => {
     loadMeals();
@@ -169,6 +199,11 @@ export function MealTracker() {
 
   const isToday = formatDateKey(selectedDate) === formatDateKey(new Date());
 
+  const formatGoalLabel = (current: number, target: number) => {
+    if (target <= 0) return '';
+    return `/ ${target}`;
+  };
+
   return (
     <div className="animate-fade-in-blur">
       {/* Date Selector */}
@@ -192,28 +227,36 @@ export function MealTracker() {
       <Card className="mb-6 border-border/50 bg-card/50 backdrop-blur-sm animate-slide-up animation-delay-75">
         <CardContent className="p-4">
           <h3 className="text-xs text-muted-foreground uppercase tracking-wider mb-3 font-medium">
-            Daily Totals
+            Daily Totals {goal && <span className="normal-case">vs Goal</span>}
           </h3>
           <div className="grid grid-cols-4 gap-3">
             <div className="text-center">
               <div className="text-xl font-bold">{Math.round(totals.calories)}</div>
-              <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Cal</div>
+              <div className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                Cal {goal ? formatGoalLabel(totals.calories, goal.calories) : ''}
+              </div>
+              {goal && <ProgressBar current={totals.calories} target={goal.calories} color="bg-foreground/60" />}
             </div>
             <div className="text-center">
               <div className="text-xl font-bold text-blue-500">{Math.round(totals.protein)}g</div>
               <div className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                Protein
+                Protein {goal ? formatGoalLabel(totals.protein, goal.protein) : ''}
               </div>
+              {goal && <ProgressBar current={totals.protein} target={goal.protein} color="bg-blue-500" />}
             </div>
             <div className="text-center">
               <div className="text-xl font-bold text-amber-500">{Math.round(totals.carbs)}g</div>
               <div className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                Carbs
+                Carbs {goal ? formatGoalLabel(totals.carbs, goal.carbs) : ''}
               </div>
+              {goal && <ProgressBar current={totals.carbs} target={goal.carbs} color="bg-amber-500" />}
             </div>
             <div className="text-center">
               <div className="text-xl font-bold text-rose-500">{Math.round(totals.fat)}g</div>
-              <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Fat</div>
+              <div className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                Fat {goal ? formatGoalLabel(totals.fat, goal.fat) : ''}
+              </div>
+              {goal && <ProgressBar current={totals.fat} target={goal.fat} color="bg-rose-500" />}
             </div>
           </div>
         </CardContent>

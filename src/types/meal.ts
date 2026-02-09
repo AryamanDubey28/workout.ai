@@ -19,6 +19,21 @@ export interface DailyMacros {
   totals: Macros;
 }
 
+export type GoalType = 'cutting' | 'bulking' | 'maintenance' | 'custom';
+export type ActivityLevel = 'sedentary' | 'light' | 'moderate' | 'active' | 'very_active';
+export type Sex = 'male' | 'female';
+
+export interface MacroGoal {
+  goalType: GoalType;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  heightCm?: number;
+  activityLevel?: ActivityLevel;
+  sex?: Sex;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';

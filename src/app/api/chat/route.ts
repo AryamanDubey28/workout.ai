@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSessionFromCookie } from '@/lib/auth';
-import { getUserWorkouts } from '@/lib/db';
+import { getUserWorkouts, getUserMealsByDate, getMacroGoal } from '@/lib/db';
 import OpenAI from 'openai';
 
 function getOpenAI() {
@@ -40,6 +40,31 @@ function formatWorkoutsForContext(workouts: any[]): string {
     .join('\n\n');
 }
 
+function formatMealsForContext(meals: any[]): string {
+  if (meals.length === 0) return 'No meals logged today.';
+
+  const mealLines = meals.map((m) => {
+    return `  - ${m.description}: ${m.macros.calories} cal, ${m.macros.protein}g protein, ${m.macros.carbs}g carbs, ${m.macros.fat}g fat`;
+  });
+
+  const totals = meals.reduce(
+    (acc: any, m: any) => ({
+      calories: acc.calories + m.macros.calories,
+      protein: acc.protein + m.macros.protein,
+      carbs: acc.carbs + m.macros.carbs,
+      fat: acc.fat + m.macros.fat,
+    }),
+    { calories: 0, protein: 0, carbs: 0, fat: 0 }
+  );
+
+  return `${mealLines.join('\n')}\n  Total so far: ${totals.calories} cal, ${totals.protein}g protein, ${totals.carbs}g carbs, ${totals.fat}g fat`;
+}
+
+function formatGoalForContext(goal: any): string {
+  if (!goal) return 'No macro goals set.';
+  return `Goal: ${goal.goalType} - ${goal.calories} cal, ${goal.protein}g protein, ${goal.carbs}g carbs, ${goal.fat}g fat daily`;
+}
+
 // POST /api/chat - Chat with AI about workouts
 export async function POST(request: NextRequest) {
   try {
@@ -56,16 +81,29 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Messages array required' }, { status: 400 });
     }
 
-    // Fetch user's recent workouts for context
-    const workouts = await getUserWorkouts(session.userId);
-    const workoutContext = formatWorkoutsForContext(workouts);
+    // Fetch context in parallel
+    const todayKey = new Date().toISOString().split('T')[0];
+    const [workouts, todayMeals, macroGoal] = await Promise.all([
+      getUserWorkouts(session.userId),
+      getUserMealsByDate(session.userId, todayKey),
+      getMacroGoal(session.userId),
+    ]);
 
-    const systemMessage = `You are a knowledgeable fitness and workout assistant for ${session.name}. You have access to their recent workout history and can provide advice on training, form, programming, recovery, and nutrition.
+    const workoutContext = formatWorkoutsForContext(workouts);
+    const mealContext = formatMealsForContext(todayMeals);
+    const goalContext = formatGoalForContext(macroGoal);
+
+    const systemMessage = `You are a knowledgeable fitness and workout assistant for ${session.name}. You have access to their recent workout history, today's meals, and their nutrition goals. You can provide advice on training, form, programming, recovery, and nutrition.
 
 Here are their recent workouts:
 ${workoutContext}
 
-Be concise, friendly, and helpful. Reference specific workouts and exercises when relevant. If they ask about progress, analyze trends in their data. Keep responses focused and practical.`;
+Today's meals:
+${mealContext}
+
+${goalContext}
+
+Be concise, friendly, and helpful. Reference specific workouts, meals, and goals when relevant. If they ask about progress, analyze trends in their data. If they ask about nutrition, factor in their goal type and remaining macros for the day. Keep responses focused and practical.`;
 
     const response = await openai.chat.completions.create({
       model: 'gpt-5.2',
