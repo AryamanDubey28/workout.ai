@@ -9,6 +9,9 @@ import { WorkoutCard } from "@/components/WorkoutCard";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { AuthForm } from "@/components/AuthForm";
 import { UserProfile } from "@/components/UserProfile";
+import { BottomNav, TabId } from "@/components/BottomNav";
+import { MealTracker } from "@/components/MealTracker";
+import { ChatView } from "@/components/ChatView";
 import { Workout } from "@/types/workout";
 import { User as UserType } from "@/types/user";
 
@@ -16,6 +19,7 @@ export default function Home() {
   const [user, setUser] = useState<UserType | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [showProfile, setShowProfile] = useState(false);
+  const [activeTab, setActiveTab] = useState<TabId>('workouts');
   const [workouts, setWorkouts] = useState<Workout[]>([]);
   const [isCreating, setIsCreating] = useState(false);
   const [editingWorkout, setEditingWorkout] = useState<Workout | null>(null);
@@ -239,7 +243,7 @@ export default function Home() {
         // Fallback to local state update
         setWorkouts(workouts.filter(w => w.id !== workoutToDelete.id));
       }
-      
+
       setWorkoutToDelete(null);
     }
   };
@@ -289,12 +293,12 @@ export default function Home() {
               <h1 className="text-2xl font-bold">Workout AI</h1>
             </div>
             <div className="flex items-center gap-2">
-              <Button 
-                variant="ghost" 
+              <Button
+                variant="ghost"
                 onClick={() => setShowProfile(false)}
                 className="interactive-scale"
               >
-                Back to Workouts
+                Back
               </Button>
               <ThemeToggle />
             </div>
@@ -302,27 +306,29 @@ export default function Home() {
         </header>
 
         {/* Profile Content */}
-        <main className="container mx-auto px-4 py-6 sm:py-8 max-w-md">
+        <main className="container mx-auto px-4 py-6 sm:py-8 max-w-md pb-24">
           <div className="animate-slide-up animation-delay-150">
             <UserProfile user={user} onLogout={handleLogout} />
           </div>
         </main>
+
+        <BottomNav activeTab={activeTab} onTabChange={(tab) => { setShowProfile(false); setActiveTab(tab); }} />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background animate-fade-in-blur">
+    <div className="min-h-screen bg-background animate-fade-in-blur flex flex-col">
       {/* Header */}
-      <header className="border-b animate-slide-down">
+      <header className="border-b animate-slide-down shrink-0">
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
           <div className="flex items-center space-x-2">
             <Dumbbell className="h-8 w-8 text-primary" />
             <h1 className="text-2xl font-bold">Workout AI</h1>
           </div>
           <div className="flex items-center gap-2">
-            <Button 
-              variant="ghost" 
+            <Button
+              variant="ghost"
               size="sm"
               onClick={() => setShowProfile(true)}
               className="flex items-center gap-2 interactive-scale"
@@ -336,64 +342,83 @@ export default function Home() {
       </header>
 
       {/* Main Content */}
-      <main className="container mx-auto px-4 py-6 sm:py-8 max-w-6xl">
-        {isFormOpen ? (
-          <WorkoutForm
-            workout={editingWorkout || undefined}
-            onSave={handleSaveWorkout}
-            onCancel={handleCancel}
-          />
-        ) : (
+      <main className={`flex-1 container mx-auto px-4 max-w-6xl ${activeTab === 'chat' ? 'flex flex-col pb-20' : 'py-6 sm:py-8 pb-24'}`}>
+        {/* Workouts Tab */}
+        {activeTab === 'workouts' && (
           <>
-            {/* Header with Add Button */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 sm:mb-8 animate-slide-up">
-              <div>
-                <h2 className="text-2xl sm:text-3xl font-bold">My Workouts</h2>
-                <p className="text-muted-foreground text-sm sm:text-base">Track and organize your fitness journey</p>
-              </div>
-              <Button
-                onClick={handleNewWorkout}
-                className="flex items-center gap-2 self-start sm:self-auto interactive-scale hover:shadow-lg hover:shadow-primary/25 transition-all duration-200"
-                size="lg"
-              >
-                <Plus className="h-4 w-4" />
-                New Workout
-              </Button>
-            </div>
-
-            {/* Workouts Grid */}
-            {workouts.length === 0 ? (
-              <div className="text-center py-12 sm:py-16 animate-slide-up animation-delay-150">
-                <div className="mx-auto w-20 h-20 sm:w-24 sm:h-24 bg-muted rounded-full flex items-center justify-center mb-4 animate-scale-in animation-delay-300">
-                  <Dumbbell className="h-10 w-10 sm:h-12 sm:w-12 text-muted-foreground" />
-                </div>
-                <h3 className="text-lg sm:text-xl font-semibold mb-2 animate-slide-up animation-delay-500">No workouts yet</h3>
-                <p className="text-muted-foreground mb-4 text-sm sm:text-base px-4 animate-slide-up animation-delay-500">
-                  Start your fitness journey by creating your first workout
-                </p>
-                <div className="animate-slide-up animation-delay-500">
-                  <Button onClick={handleNewWorkout} className="flex items-center gap-2 interactive-scale hover:shadow-lg hover:shadow-primary/25 transition-all duration-200" size="lg">
+            {isFormOpen ? (
+              <WorkoutForm
+                workout={editingWorkout || undefined}
+                onSave={handleSaveWorkout}
+                onCancel={handleCancel}
+              />
+            ) : (
+              <>
+                {/* Header with Add Button */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 sm:mb-8 animate-slide-up">
+                  <div>
+                    <h2 className="text-2xl sm:text-3xl font-bold">My Workouts</h2>
+                    <p className="text-muted-foreground text-sm sm:text-base">Track and organize your fitness journey</p>
+                  </div>
+                  <Button
+                    onClick={handleNewWorkout}
+                    className="flex items-center gap-2 self-start sm:self-auto interactive-scale hover:shadow-lg hover:shadow-primary/25 transition-all duration-200"
+                    size="lg"
+                  >
                     <Plus className="h-4 w-4" />
-                    Create Your First Workout
+                    New Workout
                   </Button>
                 </div>
-              </div>
-            ) : (
-              <div className="grid gap-3 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3 stagger-children">
-                {workouts.map((workout) => (
-                  <WorkoutCard
-                    key={workout.id}
-                    workout={workout}
-                    onClick={() => handleEditWorkout(workout)}
-                    onDelete={() => handleDeleteWorkout(workout)}
-                  />
-                ))}
-              </div>
+
+                {/* Workouts Grid */}
+                {workouts.length === 0 ? (
+                  <div className="text-center py-12 sm:py-16 animate-slide-up animation-delay-150">
+                    <div className="mx-auto w-20 h-20 sm:w-24 sm:h-24 bg-muted rounded-full flex items-center justify-center mb-4 animate-scale-in animation-delay-300">
+                      <Dumbbell className="h-10 w-10 sm:h-12 sm:w-12 text-muted-foreground" />
+                    </div>
+                    <h3 className="text-lg sm:text-xl font-semibold mb-2 animate-slide-up animation-delay-500">No workouts yet</h3>
+                    <p className="text-muted-foreground mb-4 text-sm sm:text-base px-4 animate-slide-up animation-delay-500">
+                      Start your fitness journey by creating your first workout
+                    </p>
+                    <div className="animate-slide-up animation-delay-500">
+                      <Button onClick={handleNewWorkout} className="flex items-center gap-2 interactive-scale hover:shadow-lg hover:shadow-primary/25 transition-all duration-200" size="lg">
+                        <Plus className="h-4 w-4" />
+                        Create Your First Workout
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid gap-3 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3 stagger-children">
+                    {workouts.map((workout) => (
+                      <WorkoutCard
+                        key={workout.id}
+                        workout={workout}
+                        onClick={() => handleEditWorkout(workout)}
+                        onDelete={() => handleDeleteWorkout(workout)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </>
         )}
+
+        {/* Meals Tab */}
+        {activeTab === 'meals' && (
+          <div className="max-w-lg mx-auto pt-6">
+            <MealTracker />
+          </div>
+        )}
+
+        {/* Chat Tab */}
+        {activeTab === 'chat' && (
+          <div className="max-w-2xl mx-auto flex-1 flex flex-col pt-4 min-h-0">
+            <ChatView />
+          </div>
+        )}
       </main>
-      
+
       {/* Delete Confirmation Dialog */}
       <DeleteConfirmDialog
         isOpen={!!workoutToDelete}
@@ -401,6 +426,9 @@ export default function Home() {
         onConfirm={confirmDeleteWorkout}
         onCancel={cancelDeleteWorkout}
       />
+
+      {/* Bottom Navigation */}
+      <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />
     </div>
   );
 }
