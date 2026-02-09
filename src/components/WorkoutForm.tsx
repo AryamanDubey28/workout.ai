@@ -1,12 +1,13 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Workout, Exercise } from '@/types/workout';
+import { Workout, Exercise, WorkoutPreset } from '@/types/workout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ExerciseRow } from './ExerciseRow';
 import { useExerciseCache } from '@/hooks/useExerciseCache';
-import { Plus, X, AlertTriangle, Calendar } from 'lucide-react';
+import { PresetPicker } from './PresetPicker';
+import { Plus, X, AlertTriangle, Calendar, BookTemplate } from 'lucide-react';
 import {
   DndContext,
   closestCenter,
@@ -27,14 +28,18 @@ import {
 
 interface WorkoutFormProps {
   workout?: Workout;
+  initialPreset?: WorkoutPreset;
   onSave: (workout: Workout) => void;
   onCancel: () => void;
 }
 
-export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
-  const [name, setName] = useState(workout?.name || '');
+export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: WorkoutFormProps) {
+  const [name, setName] = useState(workout?.name || initialPreset?.name || '');
   const [note, setNote] = useState(workout?.note || '');
   const [workoutDate, setWorkoutDate] = useState(workout?.date || new Date());
+  const [showPresetPicker, setShowPresetPicker] = useState(false);
+  const [availablePresets, setAvailablePresets] = useState<WorkoutPreset[]>([]);
+  const [isLoadingPresets, setIsLoadingPresets] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -48,7 +53,10 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
   );
   
 
-  const initialExercises = workout?.exercises || [
+  const initialExercises = workout?.exercises || (initialPreset?.exercises.map(ex => ({
+    ...ex,
+    id: crypto.randomUUID(),
+  }))) || [
     {
       id: crypto.randomUUID(),
       name: '',
@@ -422,6 +430,42 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
     return date.toISOString().split('T')[0];
   };
 
+  const handleOpenPresetPicker = async () => {
+    setIsLoadingPresets(true);
+    setShowPresetPicker(true);
+    try {
+      const response = await fetch('/api/presets');
+      if (response.ok) {
+        const data = await response.json();
+        setAvailablePresets(
+          data.presets.map((p: any) => ({
+            ...p,
+            createdAt: new Date(p.createdAt),
+            updatedAt: new Date(p.updatedAt),
+          }))
+        );
+      }
+    } catch (error) {
+      console.error('Error loading presets:', error);
+    } finally {
+      setIsLoadingPresets(false);
+    }
+  };
+
+  const handleSelectPreset = (preset: WorkoutPreset) => {
+    setName(preset.name);
+    setExercises(
+      preset.exercises.map((ex) => ({
+        ...ex,
+        id: crypto.randomUUID(),
+      }))
+    );
+    setShowPresetPicker(false);
+    if (preset.exercises.length > 0) {
+      setExpandedExerciseId(null);
+    }
+  };
+
   return (
     /* Modal Backdrop */
     <div 
@@ -481,6 +525,18 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
                   "Changes are saved automatically"
                 )}
               </div>
+              {!workout && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleOpenPresetPicker}
+                  className="flex items-center gap-2 interactive-scale hover:bg-primary/5 hover:border-primary/30 hover:text-primary transition-all duration-200"
+                  title="Load from preset"
+                >
+                  <BookTemplate className="h-4 w-4" />
+                  <span className="hidden sm:inline">Preset</span>
+                </Button>
+              )}
               <Button
                 variant="outline"
                 size="sm"
@@ -564,6 +620,15 @@ export function WorkoutForm({ workout, onSave, onCancel }: WorkoutFormProps) {
       </Card>
 
       {/* Confirmation Dialog */}
+      {/* Preset Picker */}
+      <PresetPicker
+        presets={availablePresets}
+        isLoading={isLoadingPresets}
+        isOpen={showPresetPicker}
+        onSelect={handleSelectPreset}
+        onClose={() => setShowPresetPicker(false)}
+      />
+
       {showConfirmDialog && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-backdrop-in" onClick={handleCancelExit}>
           <Card className="w-full max-w-md mx-auto animate-modal-in border-border/50 shadow-2xl shadow-black/25" onClick={(e) => e.stopPropagation()}>

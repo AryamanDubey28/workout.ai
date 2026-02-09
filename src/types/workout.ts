@@ -20,3 +20,17 @@ export interface Workout {
   createdAt: Date;
   updatedAt: Date;
 }
+
+export interface WorkoutPreset {
+  id: string;
+  name: string;
+  exercises: Exercise[];
+  sortOrder: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface SplitReminder {
+  nextPreset: WorkoutPreset | null;
+  completedToday: boolean;
+}
