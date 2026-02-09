@@ -371,6 +371,11 @@
     border: 1px solid rgba(255, 255, 255, 0.1);
   }
 
+  /* Safe area for bottom nav on notched phones */
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
   /* Grid background pattern */
   .bg-grid-black\/\[0\.02\] {
     background-image: radial-gradient(circle, #000000 1px, transparent 1px);

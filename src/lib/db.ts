@@ -1,6 +1,7 @@
 import { sql } from '@vercel/postgres';
 import { User, CreateUserData } from '@/types/user';
 import { Workout } from '@/types/workout';
+import { Meal, Macros, MacroGoal } from '@/types/meal';
 import bcrypt from 'bcryptjs';
 
 // Initialize the database tables
@@ -86,6 +87,47 @@ export async function initDatabase() {
 
     await sql`
       CREATE INDEX IF NOT EXISTS common_exercises_category_idx ON common_exercises(category);
+    `;
+
+    // Create meals table
+    await sql`
+      CREATE TABLE IF NOT EXISTS meals (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        description VARCHAR(500) NOT NULL,
+        calories INTEGER NOT NULL DEFAULT 0,
+        protein DECIMAL(6,1) NOT NULL DEFAULT 0,
+        carbs DECIMAL(6,1) NOT NULL DEFAULT 0,
+        fat DECIMAL(6,1) NOT NULL DEFAULT 0,
+        image_url TEXT,
+        date DATE NOT NULL DEFAULT CURRENT_DATE,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS meals_user_id_idx ON meals(user_id);
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS meals_user_date_idx ON meals(user_id, date DESC);
+    `;
+
+    // Create macro_goals table
+    await sql`
+      CREATE TABLE IF NOT EXISTS macro_goals (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        goal_type VARCHAR(20) NOT NULL DEFAULT 'maintenance',
+        calories INTEGER NOT NULL DEFAULT 2000,
+        protein DECIMAL(6,1) NOT NULL DEFAULT 150,
+        carbs DECIMAL(6,1) NOT NULL DEFAULT 200,
+        fat DECIMAL(6,1) NOT NULL DEFAULT 65,
+        height_cm DECIMAL(5,1),
+        activity_level VARCHAR(20),
+        sex VARCHAR(10),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
     `;
 
     console.log('Database initialized successfully');
@@ -490,10 +532,158 @@ export async function deleteWorkout(userId: string, workoutId: string): Promise<
       DELETE FROM workouts
       WHERE id = ${workoutId} AND user_id = ${userId};
     `;
-    
+
     return (result.rowCount ?? 0) > 0;
   } catch (error) {
     console.error('Error deleting workout:', error);
     return false;
+  }
+}
+
+// ===== MEAL FUNCTIONS =====
+
+// Create a new meal
+export async function createMeal(
+  userId: string,
+  meal: { id: string; description: string; macros: Macros; imageUrl?: string; date: string }
+): Promise<Meal | null> {
+  try {
+    const result = await sql`
+      INSERT INTO meals (id, user_id, description, calories, protein, carbs, fat, image_url, date)
+      VALUES (
+        ${meal.id}, ${userId}, ${meal.description},
+        ${meal.macros.calories}, ${meal.macros.protein}, ${meal.macros.carbs}, ${meal.macros.fat},
+        ${meal.imageUrl || null}, ${meal.date}
+      )
+      RETURNING id, description, calories, protein, carbs, fat, image_url, date, created_at;
+    `;
+
+    const row = result.rows[0];
+    return {
+      id: row.id,
+      description: row.description,
+      macros: {
+        calories: Number(row.calories),
+        protein: Number(row.protein),
+        carbs: Number(row.carbs),
+        fat: Number(row.fat),
+      },
+      imageUrl: row.image_url,
+      createdAt: new Date(row.created_at),
+    };
+  } catch (error) {
+    console.error('Error creating meal:', error);
+    return null;
+  }
+}
+
+// Get meals for a user on a specific date
+export async function getUserMealsByDate(userId: string, date: string): Promise<Meal[]> {
+  try {
+    const result = await sql`
+      SELECT id, description, calories, protein, carbs, fat, image_url, created_at
+      FROM meals
+      WHERE user_id = ${userId} AND date = ${date}
+      ORDER BY created_at ASC;
+    `;
+
+    return result.rows.map(row => ({
+      id: row.id,
+      description: row.description,
+      macros: {
+        calories: Number(row.calories),
+        protein: Number(row.protein),
+        carbs: Number(row.carbs),
+        fat: Number(row.fat),
+      },
+      imageUrl: row.image_url,
+      createdAt: new Date(row.created_at),
+    }));
+  } catch (error) {
+    console.error('Error getting meals by date:', error);
+    return [];
+  }
+}
+
+// Delete a meal
+export async function deleteMeal(userId: string, mealId: string): Promise<boolean> {
+  try {
+    const result = await sql`
+      DELETE FROM meals
+      WHERE id = ${mealId} AND user_id = ${userId};
+    `;
+    return (result.rowCount ?? 0) > 0;
+  } catch (error) {
+    console.error('Error deleting meal:', error);
+    return false;
+  }
+}
+
+// ===== MACRO GOAL FUNCTIONS =====
+
+// Get user's macro goal
+export async function getMacroGoal(userId: string): Promise<MacroGoal | null> {
+  try {
+    const result = await sql`
+      SELECT goal_type, calories, protein, carbs, fat, height_cm, activity_level, sex
+      FROM macro_goals
+      WHERE user_id = ${userId};
+    `;
+
+    if (result.rows.length === 0) return null;
+
+    const row = result.rows[0];
+    return {
+      goalType: row.goal_type,
+      calories: Number(row.calories),
+      protein: Number(row.protein),
+      carbs: Number(row.carbs),
+      fat: Number(row.fat),
+      heightCm: row.height_cm ? Number(row.height_cm) : undefined,
+      activityLevel: row.activity_level || undefined,
+      sex: row.sex || undefined,
+    };
+  } catch (error) {
+    console.error('Error getting macro goal:', error);
+    return null;
+  }
+}
+
+// Upsert user's macro goal
+export async function upsertMacroGoal(userId: string, goal: MacroGoal): Promise<MacroGoal | null> {
+  try {
+    const result = await sql`
+      INSERT INTO macro_goals (user_id, goal_type, calories, protein, carbs, fat, height_cm, activity_level, sex, updated_at)
+      VALUES (
+        ${userId}, ${goal.goalType}, ${goal.calories}, ${goal.protein}, ${goal.carbs}, ${goal.fat},
+        ${goal.heightCm || null}, ${goal.activityLevel || null}, ${goal.sex || null}, NOW()
+      )
+      ON CONFLICT (user_id) DO UPDATE SET
+        goal_type = ${goal.goalType},
+        calories = ${goal.calories},
+        protein = ${goal.protein},
+        carbs = ${goal.carbs},
+        fat = ${goal.fat},
+        height_cm = ${goal.heightCm || null},
+        activity_level = ${goal.activityLevel || null},
+        sex = ${goal.sex || null},
+        updated_at = NOW()
+      RETURNING goal_type, calories, protein, carbs, fat, height_cm, activity_level, sex;
+    `;
+
+    const row = result.rows[0];
+    return {
+      goalType: row.goal_type,
+      calories: Number(row.calories),
+      protein: Number(row.protein),
+      carbs: Number(row.carbs),
+      fat: Number(row.fat),
+      heightCm: row.height_cm ? Number(row.height_cm) : undefined,
+      activityLevel: row.activity_level || undefined,
+      sex: row.sex || undefined,
+    };
+  } catch (error) {
+    console.error('Error upserting macro goal:', error);
+    return null;
   }
 }
