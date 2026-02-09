@@ -12,7 +12,9 @@ import { UserProfile } from "@/components/UserProfile";
 import { BottomNav, TabId } from "@/components/BottomNav";
 import { MealTracker } from "@/components/MealTracker";
 import { ChatView } from "@/components/ChatView";
-import { Workout } from "@/types/workout";
+import { PresetManager } from "@/components/PresetManager";
+import { SplitReminderBanner } from "@/components/SplitReminderBanner";
+import { Workout, WorkoutPreset, SplitReminder } from "@/types/workout";
 import { User as UserType } from "@/types/user";
 
 export default function Home() {
@@ -24,6 +26,9 @@ export default function Home() {
   const [isCreating, setIsCreating] = useState(false);
   const [editingWorkout, setEditingWorkout] = useState<Workout | null>(null);
   const [workoutToDelete, setWorkoutToDelete] = useState<Workout | null>(null);
+  const [showPresetManager, setShowPresetManager] = useState(false);
+  const [splitReminder, setSplitReminder] = useState<SplitReminder | null>(null);
+  const [initialPreset, setInitialPreset] = useState<WorkoutPreset | null>(null);
 
   // On mount, if there is a draft in localStorage, auto-open the form
   const hasCheckedDraftRef = useRef(false);
@@ -98,21 +103,34 @@ export default function Home() {
     }
   }, []);
 
+  const loadSplitReminder = useCallback(async () => {
+    try {
+      const response = await fetch('/api/split/next');
+      if (response.ok) {
+        const data = await response.json();
+        setSplitReminder(data);
+      }
+    } catch (error) {
+      console.error('Error loading split reminder:', error);
+    }
+  }, []);
+
   const checkAuth = useCallback(async () => {
     try {
       const response = await fetch('/api/auth/me');
       if (response.ok) {
         const data = await response.json();
         setUser(data.user);
-        // Load workouts after successful authentication
+        // Load workouts and split reminder after successful authentication
         await loadWorkouts();
+        loadSplitReminder();
       }
     } catch (error) {
       console.error('Auth check failed:', error);
     } finally {
       setIsLoading(false);
     }
-  }, [loadWorkouts]);
+  }, [loadWorkouts, loadSplitReminder]);
 
   // Check authentication status
   useEffect(() => {
@@ -125,8 +143,11 @@ export default function Home() {
 
   const handleLogout = () => {
     setUser(null);
-    setWorkouts([]); // Clear workouts on logout
+    setWorkouts([]);
     setShowProfile(false);
+    setShowPresetManager(false);
+    setSplitReminder(null);
+    setInitialPreset(null);
   };
 
   const handleSaveWorkout = async (workout: Workout) => {
@@ -201,6 +222,9 @@ export default function Home() {
         setIsCreating(false);
       }
     }
+    // Refresh split reminder (workout may have changed the split position)
+    loadSplitReminder();
+    setInitialPreset(null);
   };
 
   const handleEditWorkout = (workout: Workout) => {
@@ -211,11 +235,23 @@ export default function Home() {
   const handleCancel = () => {
     setIsCreating(false);
     setEditingWorkout(null);
+    setInitialPreset(null);
   };
 
   const handleNewWorkout = () => {
+    setInitialPreset(null);
     setIsCreating(true);
     setEditingWorkout(null);
+  };
+
+  const handleStartPresetWorkout = (preset: WorkoutPreset) => {
+    setInitialPreset(preset);
+    setIsCreating(true);
+    setEditingWorkout(null);
+  };
+
+  const handleManagePresets = () => {
+    setShowPresetManager(true);
   };
 
   const handleDeleteWorkout = (workout: Workout) => {
@@ -245,6 +281,7 @@ export default function Home() {
       }
 
       setWorkoutToDelete(null);
+      loadSplitReminder();
     }
   };
 
@@ -281,7 +318,7 @@ export default function Home() {
     return <AuthForm onAuthSuccess={handleAuthSuccess} />;
   }
 
-  // Show user profile if requested
+  // Show user profile or preset manager if requested
   if (showProfile) {
     return (
       <div className="min-h-screen bg-background animate-fade-in-blur">
@@ -295,7 +332,7 @@ export default function Home() {
             <div className="flex items-center gap-2">
               <Button
                 variant="ghost"
-                onClick={() => setShowProfile(false)}
+                onClick={() => { setShowProfile(false); setShowPresetManager(false); }}
                 className="interactive-scale"
               >
                 Back
@@ -305,14 +342,18 @@ export default function Home() {
           </div>
         </header>
 
-        {/* Profile Content */}
+        {/* Profile / Preset Manager Content */}
         <main className="container mx-auto px-4 py-6 sm:py-8 max-w-md pb-24">
           <div className="animate-slide-up animation-delay-150">
-            <UserProfile user={user} onLogout={handleLogout} />
+            {showPresetManager ? (
+              <PresetManager onBack={() => { setShowPresetManager(false); loadSplitReminder(); }} />
+            ) : (
+              <UserProfile user={user} onLogout={handleLogout} onManagePresets={handleManagePresets} />
+            )}
           </div>
         </main>
 
-        <BottomNav activeTab={activeTab} onTabChange={(tab) => { setShowProfile(false); setActiveTab(tab); }} />
+        <BottomNav activeTab={activeTab} onTabChange={(tab) => { setShowProfile(false); setShowPresetManager(false); setActiveTab(tab); }} />
       </div>
     );
   }
@@ -349,6 +390,7 @@ export default function Home() {
             {isFormOpen ? (
               <WorkoutForm
                 workout={editingWorkout || undefined}
+                initialPreset={initialPreset || undefined}
                 onSave={handleSaveWorkout}
                 onCancel={handleCancel}
               />
@@ -369,6 +411,14 @@ export default function Home() {
                     New Workout
                   </Button>
                 </div>
+
+                {/* Split Reminder Banner */}
+                {splitReminder?.nextPreset && !splitReminder.completedToday && (
+                  <SplitReminderBanner
+                    nextPreset={splitReminder.nextPreset}
+                    onStartWorkout={handleStartPresetWorkout}
+                  />
+                )}
 
                 {/* Workouts Grid */}
                 {workouts.length === 0 ? (

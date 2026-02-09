@@ -1,7 +1,7 @@
 import { sql } from '@vercel/postgres';
 import { User, CreateUserData } from '@/types/user';
-import { Workout } from '@/types/workout';
-import { Meal, Macros, MacroGoal } from '@/types/meal';
+import { Workout, WorkoutPreset, SplitReminder, Exercise } from '@/types/workout';
+import { Meal, MealCategory, Macros, MacroGoal } from '@/types/meal';
 import bcrypt from 'bcryptjs';
 
 function parseDateOnly(value: string): Date | null {
@@ -196,6 +196,11 @@ export async function initDatabase() {
       CREATE INDEX IF NOT EXISTS meals_user_date_idx ON meals(user_id, date DESC);
     `;
 
+    // Add meal_category column (migration for existing tables)
+    await sql`
+      ALTER TABLE meals ADD COLUMN IF NOT EXISTS meal_category VARCHAR(20) NOT NULL DEFAULT 'snack';
+    `;
+
     // Create macro_goals table
     await sql`
       CREATE TABLE IF NOT EXISTS macro_goals (
@@ -211,6 +216,27 @@ export async function initDatabase() {
         sex VARCHAR(10),
         updated_at TIMESTAMP DEFAULT NOW()
       );
+    `;
+
+    // Create workout_presets table
+    await sql`
+      CREATE TABLE IF NOT EXISTS workout_presets (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        exercises JSONB NOT NULL DEFAULT '[]',
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS workout_presets_user_id_idx ON workout_presets(user_id);
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS workout_presets_sort_order_idx ON workout_presets(user_id, sort_order);
     `;
 
     console.log('Database initialized successfully');
@@ -650,22 +676,192 @@ export async function deleteWorkout(userId: string, workoutId: string): Promise<
   }
 }
 
+// ===== WORKOUT PRESET FUNCTIONS =====
+
+function mapPresetRow(row: any): WorkoutPreset {
+  return {
+    id: row.id,
+    name: row.name,
+    exercises: row.exercises as Exercise[],
+    sortOrder: row.sort_order,
+    createdAt: new Date(row.created_at),
+    updatedAt: new Date(row.updated_at),
+  };
+}
+
+// Create a new workout preset
+export async function createWorkoutPreset(
+  userId: string,
+  preset: { id: string; name: string; exercises: Exercise[]; sortOrder: number }
+): Promise<WorkoutPreset | null> {
+  try {
+    const result = await sql`
+      INSERT INTO workout_presets (id, user_id, name, exercises, sort_order, created_at, updated_at)
+      VALUES (${preset.id}, ${userId}, ${preset.name}, ${JSON.stringify(preset.exercises)}, ${preset.sortOrder}, NOW(), NOW())
+      RETURNING id, name, exercises, sort_order, created_at, updated_at;
+    `;
+    return mapPresetRow(result.rows[0]);
+  } catch (error) {
+    console.error('Error creating workout preset:', error);
+    return null;
+  }
+}
+
+// Get all presets for a user ordered by split order
+export async function getUserPresets(userId: string): Promise<WorkoutPreset[]> {
+  try {
+    const result = await sql`
+      SELECT id, name, exercises, sort_order, created_at, updated_at
+      FROM workout_presets
+      WHERE user_id = ${userId}
+      ORDER BY sort_order ASC, created_at ASC;
+    `;
+    return result.rows.map(mapPresetRow);
+  } catch (error) {
+    console.error('Error getting user presets:', error);
+    return [];
+  }
+}
+
+// Update a workout preset
+export async function updateWorkoutPreset(
+  userId: string,
+  presetId: string,
+  updates: Partial<Pick<WorkoutPreset, 'name' | 'exercises' | 'sortOrder'>>
+): Promise<WorkoutPreset | null> {
+  try {
+    const existingResult = await sql`
+      SELECT id, name, exercises, sort_order, created_at, updated_at
+      FROM workout_presets
+      WHERE id = ${presetId} AND user_id = ${userId}
+      LIMIT 1;
+    `;
+
+    if (existingResult.rowCount === 0) return null;
+
+    const existing = existingResult.rows[0];
+    const name = updates.name !== undefined ? updates.name : existing.name;
+    const exercises = updates.exercises !== undefined ? updates.exercises : existing.exercises;
+    const sortOrder = updates.sortOrder !== undefined ? updates.sortOrder : existing.sort_order;
+
+    const result = await sql`
+      UPDATE workout_presets
+      SET name = ${name}, exercises = ${JSON.stringify(exercises)}, sort_order = ${sortOrder}, updated_at = NOW()
+      WHERE id = ${presetId} AND user_id = ${userId}
+      RETURNING id, name, exercises, sort_order, created_at, updated_at;
+    `;
+    return mapPresetRow(result.rows[0]);
+  } catch (error) {
+    console.error('Error updating workout preset:', error);
+    return null;
+  }
+}
+
+// Delete a workout preset
+export async function deleteWorkoutPreset(userId: string, presetId: string): Promise<boolean> {
+  try {
+    const result = await sql`
+      DELETE FROM workout_presets
+      WHERE id = ${presetId} AND user_id = ${userId};
+    `;
+    return (result.rowCount ?? 0) > 0;
+  } catch (error) {
+    console.error('Error deleting workout preset:', error);
+    return false;
+  }
+}
+
+// Reorder presets (updates sort_order based on array index)
+export async function reorderWorkoutPresets(userId: string, presetIds: string[]): Promise<boolean> {
+  try {
+    for (let i = 0; i < presetIds.length; i++) {
+      await sql`
+        UPDATE workout_presets
+        SET sort_order = ${i}, updated_at = NOW()
+        WHERE id = ${presetIds[i]} AND user_id = ${userId};
+      `;
+    }
+    return true;
+  } catch (error) {
+    console.error('Error reordering workout presets:', error);
+    return false;
+  }
+}
+
+// Get the next preset in the split cycle based on most recent matching workout
+export async function getNextSplitPreset(userId: string): Promise<SplitReminder> {
+  try {
+    // Get all presets in order
+    const presets = await getUserPresets(userId);
+    if (presets.length === 0) {
+      return { nextPreset: null, completedToday: false };
+    }
+
+    // Find the most recent workout whose name matches any preset (via subquery)
+    const lastMatchResult = await sql`
+      SELECT w.name, w.date
+      FROM workouts w
+      WHERE w.user_id = ${userId}
+        AND LOWER(w.name) IN (
+          SELECT LOWER(wp.name) FROM workout_presets wp WHERE wp.user_id = ${userId}
+        )
+      ORDER BY w.date DESC, w.created_at DESC
+      LIMIT 1;
+    `;
+
+    if (lastMatchResult.rows.length === 0) {
+      // No matching workouts yet — suggest the first preset
+      return { nextPreset: presets[0], completedToday: false };
+    }
+
+    const lastWorkout = lastMatchResult.rows[0];
+    const lastWorkoutDate = new Date(lastWorkout.date);
+
+    // Check if the last matching workout was today
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const completedToday = lastWorkoutDate >= todayStart;
+
+    // Find which preset was last completed
+    const matchIndex = presets.findIndex(
+      p => p.name.toLowerCase() === lastWorkout.name.toLowerCase()
+    );
+
+    if (matchIndex === -1) {
+      return { nextPreset: presets[0], completedToday: false };
+    }
+
+    // Next preset in rotation
+    const nextIndex = (matchIndex + 1) % presets.length;
+
+    if (completedToday) {
+      // Already completed today's workout — show next one but mark as done
+      return { nextPreset: presets[nextIndex], completedToday: true };
+    }
+
+    return { nextPreset: presets[nextIndex], completedToday: false };
+  } catch (error) {
+    console.error('Error getting next split preset:', error);
+    return { nextPreset: null, completedToday: false };
+  }
+}
+
 // ===== MEAL FUNCTIONS =====
 
 // Create a new meal
 export async function createMeal(
   userId: string,
-  meal: { id: string; description: string; macros: Macros; imageUrl?: string; date: string }
+  meal: { id: string; description: string; macros: Macros; category: MealCategory; imageUrl?: string; date: string }
 ): Promise<Meal | null> {
   try {
     const result = await sql`
-      INSERT INTO meals (id, user_id, description, calories, protein, carbs, fat, image_url, date)
+      INSERT INTO meals (id, user_id, description, calories, protein, carbs, fat, meal_category, image_url, date)
       VALUES (
         ${meal.id}, ${userId}, ${meal.description},
         ${meal.macros.calories}, ${meal.macros.protein}, ${meal.macros.carbs}, ${meal.macros.fat},
-        ${meal.imageUrl || null}, ${meal.date}
+        ${meal.category}, ${meal.imageUrl || null}, ${meal.date}
       )
-      RETURNING id, description, calories, protein, carbs, fat, image_url, date, created_at;
+      RETURNING id, description, calories, protein, carbs, fat, meal_category, image_url, date, created_at;
     `;
 
     const row = result.rows[0];
@@ -678,6 +874,7 @@ export async function createMeal(
         carbs: Number(row.carbs),
         fat: Number(row.fat),
       },
+      category: row.meal_category,
       imageUrl: row.image_url,
       createdAt: new Date(row.created_at),
     };
@@ -691,10 +888,18 @@ export async function createMeal(
 export async function getUserMealsByDate(userId: string, date: string): Promise<Meal[]> {
   try {
     const result = await sql`
-      SELECT id, description, calories, protein, carbs, fat, image_url, created_at
+      SELECT id, description, calories, protein, carbs, fat, meal_category, image_url, created_at
       FROM meals
       WHERE user_id = ${userId} AND date = ${date}
-      ORDER BY created_at ASC;
+      ORDER BY
+        CASE meal_category
+          WHEN 'breakfast' THEN 1
+          WHEN 'lunch' THEN 2
+          WHEN 'snack' THEN 3
+          WHEN 'dinner' THEN 4
+          ELSE 5
+        END,
+        created_at ASC;
     `;
 
     return result.rows.map(row => ({
@@ -706,6 +911,7 @@ export async function getUserMealsByDate(userId: string, date: string): Promise<
         carbs: Number(row.carbs),
         fat: Number(row.fat),
       },
+      category: row.meal_category || 'snack',
       imageUrl: row.image_url,
       createdAt: new Date(row.created_at),
     }));

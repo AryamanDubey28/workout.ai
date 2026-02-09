@@ -1,11 +1,12 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Camera, ChevronLeft, ChevronRight, Loader2, UtensilsCrossed, Plus } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Loader2, UtensilsCrossed, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { MealCard } from '@/components/MealCard';
-import { Meal, Macros, MacroGoal } from '@/types/meal';
+import { MealReviewModal } from '@/components/MealReviewModal';
+import { Meal, Macros, MacroGoal, MealCategory, MEAL_CATEGORIES } from '@/types/meal';
 
 function formatDateKey(date: Date): string {
   return date.toISOString().split('T')[0];
@@ -46,8 +47,13 @@ export function MealTracker() {
   const [goal, setGoal] = useState<MacroGoal | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analyzingCategory, setAnalyzingCategory] = useState<MealCategory | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Review modal state
+  const [pendingCategory, setPendingCategory] = useState<MealCategory>('breakfast');
+  const [reviewData, setReviewData] = useState<{ description: string; macros: Macros } | null>(null);
 
   const loadGoal = useCallback(async () => {
     try {
@@ -103,7 +109,7 @@ export function MealTracker() {
   const handleNextDay = () => {
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
-    if (selectedDate >= tomorrow) return; // Don't go past today
+    if (selectedDate >= tomorrow) return;
     setSelectedDate((d) => {
       const next = new Date(d);
       next.setDate(next.getDate() + 1);
@@ -111,7 +117,8 @@ export function MealTracker() {
     });
   };
 
-  const handleImageCapture = () => {
+  const handleAddMeal = (category: MealCategory) => {
+    setPendingCategory(category);
     fileInputRef.current?.click();
   };
 
@@ -120,10 +127,10 @@ export function MealTracker() {
     if (!file) return;
 
     setIsAnalyzing(true);
+    setAnalyzingCategory(pendingCategory);
     setError(null);
 
     try {
-      // Step 1: Analyze image
       const formData = new FormData();
       formData.append('image', file);
 
@@ -138,12 +145,26 @@ export function MealTracker() {
       }
 
       const analysis = await analyzeRes.json();
+      setReviewData({ description: analysis.description, macros: analysis.macros });
+    } catch (err: any) {
+      console.error('Error:', err);
+      setError(err.message || 'Something went wrong');
+    } finally {
+      setIsAnalyzing(false);
+      setAnalyzingCategory(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
-      // Step 2: Save the meal
+  const handleConfirmMeal = async (description: string, macros: Macros, category: MealCategory) => {
+    setReviewData(null);
+
+    try {
       const mealData = {
         id: crypto.randomUUID(),
-        description: analysis.description,
-        macros: analysis.macros,
+        description,
+        macros,
+        category,
         date: formatDateKey(selectedDate),
       };
 
@@ -168,12 +189,8 @@ export function MealTracker() {
         }));
       }
     } catch (err: any) {
-      console.error('Error:', err);
-      setError(err.message || 'Something went wrong');
-    } finally {
-      setIsAnalyzing(false);
-      // Reset file input so the same file can be selected again
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      console.error('Error saving meal:', err);
+      setError(err.message || 'Failed to save meal');
     }
   };
 
@@ -204,8 +221,27 @@ export function MealTracker() {
     return `/ ${target}`;
   };
 
+  // Group meals by category
+  const mealsByCategory = MEAL_CATEGORIES.reduce(
+    (acc, cat) => {
+      acc[cat.key] = meals.filter((m) => m.category === cat.key);
+      return acc;
+    },
+    {} as Record<MealCategory, Meal[]>
+  );
+
   return (
     <div className="animate-fade-in-blur">
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={handleFileChange}
+      />
+
       {/* Date Selector */}
       <div className="flex items-center justify-between mb-6 animate-slide-up">
         <Button variant="ghost" size="sm" onClick={handlePrevDay} className="interactive-scale">
@@ -269,59 +305,105 @@ export function MealTracker() {
         </div>
       )}
 
-      {/* Add Meal Button */}
-      <div className="mb-6 animate-slide-up animation-delay-150">
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          className="hidden"
-          onChange={handleFileChange}
-        />
-        <Button
-          onClick={handleImageCapture}
-          disabled={isAnalyzing}
-          className="w-full flex items-center gap-2 interactive-scale hover:shadow-lg hover:shadow-primary/25 transition-all duration-200"
-          size="lg"
-        >
-          {isAnalyzing ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Analyzing meal...
-            </>
-          ) : (
-            <>
-              <Camera className="h-4 w-4" />
-              <Plus className="h-3 w-3" />
-              Snap a Meal
-            </>
-          )}
-        </Button>
-      </div>
-
-      {/* Meals List */}
+      {/* Meal Category Sections */}
       {isLoading ? (
         <div className="text-center py-8">
           <Loader2 className="h-6 w-6 text-primary mx-auto animate-spin" />
           <p className="text-sm text-muted-foreground mt-2">Loading meals...</p>
         </div>
-      ) : meals.length === 0 ? (
-        <div className="text-center py-12 animate-slide-up animation-delay-300">
-          <div className="mx-auto w-20 h-20 bg-muted rounded-full flex items-center justify-center mb-4 animate-scale-in animation-delay-500">
-            <UtensilsCrossed className="h-10 w-10 text-muted-foreground" />
+      ) : meals.length === 0 && !isAnalyzing ? (
+        <div>
+          {/* Empty state message */}
+          <div className="text-center py-8 mb-4 animate-slide-up animation-delay-300">
+            <div className="mx-auto w-16 h-16 bg-muted rounded-full flex items-center justify-center mb-3 animate-scale-in animation-delay-500">
+              <UtensilsCrossed className="h-8 w-8 text-muted-foreground" />
+            </div>
+            <h3 className="text-base font-semibold mb-1">No meals logged</h3>
+            <p className="text-muted-foreground text-sm px-4">
+              Tap + on a meal category below to snap a photo
+            </p>
           </div>
-          <h3 className="text-lg font-semibold mb-2">No meals logged</h3>
-          <p className="text-muted-foreground text-sm px-4">
-            Take a photo of your meal to get an instant macro breakdown
-          </p>
+
+          {/* Still show category sections with add buttons */}
+          <div className="space-y-3 stagger-children">
+            {MEAL_CATEGORIES.map((cat) => (
+              <div key={cat.key} className="flex items-center justify-between py-2 px-1">
+                <span className="text-sm font-medium text-muted-foreground">{cat.label}</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleAddMeal(cat.key)}
+                  disabled={isAnalyzing}
+                  className="h-8 w-8 p-0 hover:bg-primary/10 text-muted-foreground hover:text-primary"
+                >
+                  {isAnalyzing && analyzingCategory === cat.key ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Plus className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
+            ))}
+          </div>
         </div>
       ) : (
-        <div className="space-y-3 stagger-children">
-          {meals.map((meal) => (
-            <MealCard key={meal.id} meal={meal} onDelete={handleDeleteMeal} />
-          ))}
+        <div className="space-y-4 stagger-children">
+          {MEAL_CATEGORIES.map((cat) => {
+            const categoryMeals = mealsByCategory[cat.key] || [];
+            return (
+              <div key={cat.key}>
+                {/* Category Header */}
+                <div className="flex items-center justify-between mb-2 px-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold">{cat.label}</span>
+                    {categoryMeals.length > 0 && (
+                      <span className="text-xs text-muted-foreground">
+                        {categoryMeals.reduce((sum, m) => sum + m.macros.calories, 0)} cal
+                      </span>
+                    )}
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleAddMeal(cat.key)}
+                    disabled={isAnalyzing}
+                    className="h-8 w-8 p-0 hover:bg-primary/10 text-muted-foreground hover:text-primary"
+                  >
+                    {isAnalyzing && analyzingCategory === cat.key ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Plus className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+
+                {/* Category Meals */}
+                {categoryMeals.length > 0 ? (
+                  <div className="space-y-2">
+                    {categoryMeals.map((meal) => (
+                      <MealCard key={meal.id} meal={meal} onDelete={handleDeleteMeal} />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-xs text-muted-foreground py-2 px-1 border-b border-border/30">
+                    No {cat.label.toLowerCase()} logged
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
+      )}
+
+      {/* Review Modal */}
+      {reviewData && (
+        <MealReviewModal
+          description={reviewData.description}
+          macros={reviewData.macros}
+          category={pendingCategory}
+          onConfirm={handleConfirmMeal}
+          onCancel={() => setReviewData(null)}
+        />
       )}
     </div>
   );

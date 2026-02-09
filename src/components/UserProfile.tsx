@@ -6,11 +6,12 @@ import { MacroGoal, GoalType, ActivityLevel, Sex } from '@/types/meal';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { LogOut, User as UserIcon, Mail, Calendar, Weight, Target, Calculator, Save, Loader2, Check } from 'lucide-react';
+import { LogOut, User as UserIcon, Mail, Calendar, Weight, Target, Calculator, Save, Loader2, Check, Dumbbell } from 'lucide-react';
 
 interface UserProfileProps {
   user: User;
   onLogout: () => void;
+  onManagePresets: () => void;
 }
 
 const GOAL_TYPES: { value: GoalType; label: string; desc: string }[] = [
@@ -58,7 +59,7 @@ function calculateMacros(
   return { calories: tdee, protein, carbs, fat };
 }
 
-export function UserProfile({ user, onLogout }: UserProfileProps) {
+export function UserProfile({ user, onLogout, onManagePresets }: UserProfileProps) {
   const [goal, setGoal] = useState<MacroGoal | null>(null);
   const [isLoadingGoal, setIsLoadingGoal] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -214,6 +215,26 @@ export function UserProfile({ user, onLogout }: UserProfileProps) {
               Sign Out
             </Button>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Workout Presets Card */}
+      <Card className="w-full max-w-md animate-scale-in animation-delay-100 border-border/50 shadow-lg">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Dumbbell className="h-5 w-5 text-primary" />
+            Workout Presets
+          </CardTitle>
+          <CardDescription>Manage your workout templates and split cycle</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button
+            variant="outline"
+            onClick={onManagePresets}
+            className="w-full interactive-scale"
+          >
+            Manage Presets
+          </Button>
         </CardContent>
       </Card>
 
