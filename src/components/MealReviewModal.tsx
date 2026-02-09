@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Macros, MealCategory, MEAL_CATEGORIES } from '@/types/meal';
-import { X, Loader2, Send, Check, Sparkles } from 'lucide-react';
+import { X, Loader2, Send, Check, Sparkles, Pencil } from 'lucide-react';
 
 interface RefinementMessage {
   role: 'user' | 'assistant';
@@ -34,6 +34,7 @@ export function MealReviewModal({
   const [refinementText, setRefinementText] = useState('');
   const [isRefining, setIsRefining] = useState(false);
   const [messages, setMessages] = useState<RefinementMessage[]>([]);
+  const [isEditingMacros, setIsEditingMacros] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -86,6 +87,12 @@ export function MealReviewModal({
     }
   };
 
+  const updateMacro = (field: keyof Macros, value: string) => {
+    const num = value === '' ? 0 : Number(value);
+    if (isNaN(num)) return;
+    setMacros((prev) => ({ ...prev, [field]: num }));
+  };
+
   const categoryLabel = MEAL_CATEGORIES.find((c) => c.key === category)?.label || 'Snack';
 
   return (
@@ -112,24 +119,80 @@ export function MealReviewModal({
         <CardContent className="px-4 pb-4 flex flex-col gap-4 overflow-hidden flex-1 min-h-0">
           {/* AI Suggestion */}
           <div className="bg-muted/50 rounded-lg p-3 space-y-3">
-            <p className="text-sm font-medium">{description}</p>
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-sm font-medium">{description}</p>
+              <button
+                onClick={() => setIsEditingMacros((v) => !v)}
+                className="shrink-0 p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                title="Edit macros manually"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+            </div>
             <div className="grid grid-cols-4 gap-2">
-              <div className="text-center">
-                <div className="text-lg font-bold">{macros.calories}</div>
-                <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Cal</div>
-              </div>
-              <div className="text-center">
-                <div className="text-lg font-bold text-blue-500">{macros.protein}g</div>
-                <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Protein</div>
-              </div>
-              <div className="text-center">
-                <div className="text-lg font-bold text-amber-500">{macros.carbs}g</div>
-                <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Carbs</div>
-              </div>
-              <div className="text-center">
-                <div className="text-lg font-bold text-rose-500">{macros.fat}g</div>
-                <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Fat</div>
-              </div>
+              {isEditingMacros ? (
+                <>
+                  <div className="text-center">
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      value={macros.calories}
+                      onChange={(e) => updateMacro('calories', e.target.value)}
+                      className="w-full text-center text-lg font-bold bg-background border border-border rounded-md py-0.5 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    />
+                    <div className="text-[10px] text-muted-foreground uppercase tracking-wider mt-1">Cal</div>
+                  </div>
+                  <div className="text-center">
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      value={macros.protein}
+                      onChange={(e) => updateMacro('protein', e.target.value)}
+                      className="w-full text-center text-lg font-bold text-blue-500 bg-background border border-border rounded-md py-0.5 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    />
+                    <div className="text-[10px] text-muted-foreground uppercase tracking-wider mt-1">Protein</div>
+                  </div>
+                  <div className="text-center">
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      value={macros.carbs}
+                      onChange={(e) => updateMacro('carbs', e.target.value)}
+                      className="w-full text-center text-lg font-bold text-amber-500 bg-background border border-border rounded-md py-0.5 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    />
+                    <div className="text-[10px] text-muted-foreground uppercase tracking-wider mt-1">Carbs</div>
+                  </div>
+                  <div className="text-center">
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      value={macros.fat}
+                      onChange={(e) => updateMacro('fat', e.target.value)}
+                      className="w-full text-center text-lg font-bold text-rose-500 bg-background border border-border rounded-md py-0.5 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    />
+                    <div className="text-[10px] text-muted-foreground uppercase tracking-wider mt-1">Fat</div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="text-center">
+                    <div className="text-lg font-bold">{macros.calories}</div>
+                    <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Cal</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-lg font-bold text-blue-500">{macros.protein}g</div>
+                    <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Protein</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-lg font-bold text-amber-500">{macros.carbs}g</div>
+                    <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Carbs</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-lg font-bold text-rose-500">{macros.fat}g</div>
+                    <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Fat</div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
