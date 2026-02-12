@@ -5,6 +5,11 @@ export interface Macros {
   fat: number;
 }
 
+export interface MealItem {
+  name: string;
+  macros: Macros;
+}
+
 export type MealCategory = 'breakfast' | 'lunch' | 'snack' | 'dinner';
 
 export const MEAL_CATEGORIES: { key: MealCategory; label: string }[] = [

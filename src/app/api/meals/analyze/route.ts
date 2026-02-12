@@ -6,7 +6,29 @@ function getOpenAI() {
   return new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 }
 
-// POST /api/meals/analyze - Analyze a meal image for macros
+const SYSTEM_PROMPT = `You are a nutrition analysis assistant. Analyze the food described (or shown in the image) and provide an estimated macro breakdown. Be concise with the description. If the user includes context text, use it to improve the estimate.
+
+Break the meal into individual food items, each with their own macro estimate. The item macros should sum to the total macros (within rounding).
+
+Always respond with valid JSON in this exact format:
+{
+  "description": "Brief description of the meal (max 60 chars)",
+  "macros": {
+    "calories": <number>,
+    "protein": <number in grams>,
+    "carbs": <number in grams>,
+    "fat": <number in grams>
+  },
+  "items": [
+    {
+      "name": "Item name with estimated quantity",
+      "macros": { "calories": 0, "protein": 0, "carbs": 0, "fat": 0 }
+    }
+  ]
+}
+Only return the JSON, no other text.`;
+
+// POST /api/meals/analyze - Analyze a meal from text, image, or both
 export async function POST(request: NextRequest) {
   try {
     const openai = getOpenAI();
@@ -17,55 +39,48 @@ export async function POST(request: NextRequest) {
 
     const formData = await request.formData();
     const image = formData.get('image') as File | null;
+    const textRaw = formData.get('text');
+    const text = typeof textRaw === 'string' ? textRaw.trim().slice(0, 500) : '';
     const contextRaw = formData.get('context');
     const context = typeof contextRaw === 'string' ? contextRaw.trim().slice(0, 500) : '';
 
-    if (!image) {
-      return NextResponse.json({ error: 'No image provided' }, { status: 400 });
+    if (!image && !text) {
+      return NextResponse.json(
+        { error: 'Provide a meal description or photo (or both)' },
+        { status: 400 }
+      );
     }
 
-    // Convert image to base64
-    const bytes = await image.arrayBuffer();
-    const base64 = Buffer.from(bytes).toString('base64');
-    const mimeType = image.type || 'image/jpeg';
+    // Build user message content
+    const userContent: any[] = [];
+
+    if (image) {
+      const bytes = await image.arrayBuffer();
+      const base64 = Buffer.from(bytes).toString('base64');
+      const mimeType = image.type || 'image/jpeg';
+      userContent.push({
+        type: 'image_url',
+        image_url: {
+          url: `data:${mimeType};base64,${base64}`,
+          detail: 'low',
+        },
+      });
+    }
+
+    let textPrompt = 'Analyze this meal and estimate the macronutrient breakdown.';
+    if (text) textPrompt += `\nMeal description: ${text}`;
+    if (context) textPrompt += `\nAdditional context: ${context}`;
+    textPrompt += '\nReturn only valid JSON.';
+
+    userContent.push({ type: 'text', text: textPrompt });
 
     const response = await openai.chat.completions.create({
       model: 'gpt-5.2',
       messages: [
-        {
-          role: 'system',
-          content: `You are a nutrition analysis assistant. Analyze the food in the image and provide an estimated macro breakdown. Be concise with the description. If the user includes context text, use it to improve the estimate while still grounding your answer in the image. Always respond with valid JSON in this exact format:
-{
-  "description": "Brief description of the meal (max 60 chars)",
-  "macros": {
-    "calories": <number>,
-    "protein": <number in grams>,
-    "carbs": <number in grams>,
-    "fat": <number in grams>
-  }
-}
-Only return the JSON, no other text.`,
-        },
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'image_url',
-              image_url: {
-                url: `data:${mimeType};base64,${base64}`,
-                detail: 'low',
-              },
-            },
-            {
-              type: 'text',
-              text: context
-                ? `Analyze this meal and estimate the macronutrient breakdown.\nUser context: ${context}\nReturn only valid JSON.`
-                : 'Analyze this meal and estimate the macronutrient breakdown. Return only valid JSON.',
-            },
-          ],
-        },
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: userContent },
       ],
-      max_completion_tokens: 200,
+      max_completion_tokens: 500,
       temperature: 0.3,
     });
 
@@ -82,7 +97,14 @@ Only return the JSON, no other text.`,
 
     const analysis = JSON.parse(cleanContent);
 
-    return NextResponse.json(analysis);
+    // Defensive fallback for items
+    const items = Array.isArray(analysis.items) ? analysis.items : [];
+
+    return NextResponse.json({
+      description: analysis.description,
+      macros: analysis.macros,
+      items,
+    });
   } catch (error: any) {
     console.error('Error analyzing meal:', error);
 
@@ -90,6 +112,6 @@ Only return the JSON, no other text.`,
       return NextResponse.json({ error: 'Invalid OpenAI API key' }, { status: 401 });
     }
 
-    return NextResponse.json({ error: 'Failed to analyze image' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to analyze meal' }, { status: 500 });
   }
 }

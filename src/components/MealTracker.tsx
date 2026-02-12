@@ -1,12 +1,12 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { ChevronLeft, ChevronRight, Loader2, UtensilsCrossed, Plus, Camera } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Loader2, UtensilsCrossed, Plus, Camera, Sparkles, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { MealCard } from '@/components/MealCard';
 import { MealReviewModal } from '@/components/MealReviewModal';
-import { Meal, Macros, MacroGoal, MealCategory, MEAL_CATEGORIES } from '@/types/meal';
+import { Meal, Macros, MealItem, MacroGoal, MealCategory, MEAL_CATEGORIES } from '@/types/meal';
 
 function formatDateKey(date: Date): string {
   return date.toISOString().split('T')[0];
@@ -47,18 +47,22 @@ export function MealTracker() {
   const [goal, setGoal] = useState<MacroGoal | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analyzingCategory, setAnalyzingCategory] = useState<MealCategory | null>(null);
   const [isSavingMeal, setIsSavingMeal] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadCardRef = useRef<HTMLDivElement>(null);
+
+  // Input state
+  const [mealDescription, setMealDescription] = useState('');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [quickAddCategory, setQuickAddCategory] = useState<MealCategory>('breakfast');
 
   // Review modal state
   const [pendingCategory, setPendingCategory] = useState<MealCategory>('breakfast');
-  const [quickAddCategory, setQuickAddCategory] = useState<MealCategory>('breakfast');
-  const [analysisContext, setAnalysisContext] = useState('');
   const [reviewData, setReviewData] = useState<{
     description: string;
     macros: Macros;
+    items?: MealItem[];
     context?: string;
   } | null>(null);
 
@@ -124,25 +128,26 @@ export function MealTracker() {
     });
   };
 
-  const handleAddMeal = (category: MealCategory) => {
-    setPendingCategory(category);
-    fileInputRef.current?.click();
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) setSelectedFile(file);
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handleAnalyze = async () => {
+    if (!mealDescription.trim() && !selectedFile) return;
 
     setIsAnalyzing(true);
-    setAnalyzingCategory(pendingCategory);
     setError(null);
 
     try {
       const formData = new FormData();
-      formData.append('image', file);
-      const context = analysisContext.trim();
-      if (context) {
-        formData.append('context', context);
+      if (selectedFile) {
+        formData.append('image', selectedFile);
+      }
+      const text = mealDescription.trim();
+      if (text) {
+        formData.append('text', text);
       }
 
       const analyzeRes = await fetch('/api/meals/analyze', {
@@ -152,22 +157,24 @@ export function MealTracker() {
 
       if (!analyzeRes.ok) {
         const errData = await analyzeRes.json();
-        throw new Error(errData.error || 'Failed to analyze image');
+        throw new Error(errData.error || 'Failed to analyze meal');
       }
 
       const analysis = await analyzeRes.json();
+      setPendingCategory(quickAddCategory);
       setReviewData({
         description: analysis.description,
         macros: analysis.macros,
-        context: context || undefined,
+        items: analysis.items,
+        context: text || undefined,
       });
     } catch (err: any) {
       console.error('Error:', err);
       setError(err.message || 'Something went wrong');
     } finally {
       setIsAnalyzing(false);
-      setAnalyzingCategory(null);
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      setSelectedFile(null);
+      setMealDescription('');
     }
   };
 
@@ -207,7 +214,6 @@ export function MealTracker() {
         carbs: prev.carbs + newMeal.macros.carbs,
         fat: prev.fat + newMeal.macros.fat,
       }));
-      setAnalysisContext('');
       setReviewData(null);
     } catch (err: any) {
       console.error('Error saving meal:', err);
@@ -253,6 +259,8 @@ export function MealTracker() {
     {} as Record<MealCategory, Meal[]>
   );
 
+  const canAnalyze = mealDescription.trim().length > 0 || selectedFile !== null;
+
   return (
     <div className="animate-fade-in-blur max-w-3xl mx-auto">
       {/* Hidden file input */}
@@ -260,9 +268,8 @@ export function MealTracker() {
         ref={fileInputRef}
         type="file"
         accept="image/*"
-        capture="environment"
         className="hidden"
-        onChange={handleFileChange}
+        onChange={handleFileSelect}
       />
 
       {/* Date Selector */}
@@ -282,18 +289,24 @@ export function MealTracker() {
         </Button>
       </div>
 
-      {/* Upload Area */}
-      <Card className="mb-6 border-border/60 bg-card/70 backdrop-blur-sm animate-slide-up animation-delay-75">
+      {/* Log a Meal Card */}
+      <Card
+        ref={uploadCardRef}
+        className="mb-6 border-border/60 bg-card/70 backdrop-blur-sm animate-slide-up animation-delay-75"
+      >
         <CardContent className="p-4 sm:p-6">
-          <div className="max-w-2xl mx-auto text-center">
-            <div className="mx-auto w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mb-3">
-              <Camera className="h-7 w-7 text-primary" />
+          <div className="max-w-2xl mx-auto">
+            <div className="text-center">
+              <div className="mx-auto w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mb-3">
+                <UtensilsCrossed className="h-7 w-7 text-primary" />
+              </div>
+              <h3 className="text-base sm:text-lg font-semibold">Log a Meal</h3>
+              <p className="text-sm text-muted-foreground mt-1">
+                Describe what you ate, snap a photo, or both.
+              </p>
             </div>
-            <h3 className="text-base sm:text-lg font-semibold">Upload Meal Photo</h3>
-            <p className="text-sm text-muted-foreground mt-1">
-              Add an optional note for better one-shot accuracy.
-            </p>
 
+            {/* Category selector */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4">
               {MEAL_CATEGORIES.map((cat) => (
                 <button
@@ -310,38 +323,74 @@ export function MealTracker() {
               ))}
             </div>
 
+            {/* Meal description */}
             <div className="mt-4 text-left">
               <label
-                htmlFor="meal-analysis-context"
+                htmlFor="meal-description"
                 className="text-xs font-medium text-muted-foreground uppercase tracking-wider"
               >
-                Comment for AI (optional)
+                Describe your meal
               </label>
               <textarea
-                id="meal-analysis-context"
-                value={analysisContext}
-                onChange={(e) => setAnalysisContext(e.target.value)}
-                placeholder="Example: This has 2 chicken thighs, extra olive oil, and no rice."
-                className="mt-2 min-h-24 w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                maxLength={280}
+                id="meal-description"
+                value={mealDescription}
+                onChange={(e) => setMealDescription(e.target.value)}
+                placeholder="e.g. Protein shake with whole milk and mixed berries"
+                className="mt-2 min-h-20 w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                maxLength={500}
               />
             </div>
 
+            {/* Photo attach row */}
+            <div className="mt-3 flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => fileInputRef.current?.click()}
+                className="text-xs"
+              >
+                <Camera className="h-3.5 w-3.5 mr-1.5" />
+                {selectedFile ? 'Change Photo' : 'Attach Photo'}
+              </Button>
+              {selectedFile ? (
+                <span className="text-xs text-muted-foreground flex items-center gap-1 min-w-0">
+                  <span className="truncate">
+                    {selectedFile.name.length > 25
+                      ? selectedFile.name.slice(0, 25) + '...'
+                      : selectedFile.name}
+                  </span>
+                  <button
+                    onClick={() => setSelectedFile(null)}
+                    className="shrink-0 text-destructive hover:text-destructive/80"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ) : (
+                <span className="text-xs text-muted-foreground">Optional</span>
+              )}
+            </div>
+
             <Button
-              onClick={() => handleAddMeal(quickAddCategory)}
-              disabled={isAnalyzing}
+              onClick={handleAnalyze}
+              disabled={isAnalyzing || !canAnalyze}
               size="lg"
               className="mt-4 h-12 sm:h-14 px-8 text-sm sm:text-base w-full sm:w-auto interactive-scale"
             >
-              {isAnalyzing && analyzingCategory === quickAddCategory ? (
+              {isAnalyzing ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Analyzing photo...
+                  Analyzing...
+                </>
+              ) : selectedFile ? (
+                <>
+                  <Camera className="h-4 w-4 mr-2" />
+                  Analyze Photo
                 </>
               ) : (
                 <>
-                  <Camera className="h-4 w-4 mr-2" />
-                  Add Photo to {MEAL_CATEGORIES.find((cat) => cat.key === quickAddCategory)?.label}
+                  <Sparkles className="h-4 w-4 mr-2" />
+                  Analyze Meal
                 </>
               )}
             </Button>
@@ -410,7 +459,7 @@ export function MealTracker() {
             </div>
             <h3 className="text-base font-semibold mb-1">No meals logged</h3>
             <p className="text-muted-foreground text-sm px-4">
-              Upload your first meal photo above to start tracking.
+              Describe or photograph your first meal above to start tracking.
             </p>
           </div>
         </div>
@@ -433,15 +482,14 @@ export function MealTracker() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => handleAddMeal(cat.key)}
+                    onClick={() => {
+                      setQuickAddCategory(cat.key);
+                      uploadCardRef.current?.scrollIntoView({ behavior: 'smooth' });
+                    }}
                     disabled={isAnalyzing}
                     className="h-8 w-8 p-0 hover:bg-primary/10 text-muted-foreground hover:text-primary"
                   >
-                    {isAnalyzing && analyzingCategory === cat.key ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Plus className="h-4 w-4" />
-                    )}
+                    <Plus className="h-4 w-4" />
                   </Button>
                 </div>
 
@@ -468,6 +516,7 @@ export function MealTracker() {
         <MealReviewModal
           description={reviewData.description}
           macros={reviewData.macros}
+          items={reviewData.items}
           analysisContext={reviewData.context}
           category={pendingCategory}
           onConfirm={handleConfirmMeal}
