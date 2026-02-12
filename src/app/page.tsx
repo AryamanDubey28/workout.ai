@@ -383,7 +383,7 @@ export default function Home() {
       </header>
 
       {/* Main Content */}
-      <main className={`flex-1 container mx-auto px-4 max-w-6xl ${activeTab === 'chat' ? 'flex flex-col pb-20 min-h-0' : 'py-6 sm:py-8 pb-24'}`}>
+      <main className={`flex-1 container mx-auto px-4 max-w-6xl ${activeTab === 'chat' ? 'flex flex-col pb-28 min-h-0' : 'py-6 sm:py-8 pb-24'}`}>
         {/* Workouts Tab */}
         {activeTab === 'workouts' && (
           <>
