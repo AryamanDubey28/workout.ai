@@ -359,7 +359,7 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-background animate-fade-in-blur flex flex-col">
+    <div className={`bg-background animate-fade-in-blur flex flex-col ${activeTab === 'chat' ? 'h-[100dvh] overflow-hidden' : 'min-h-screen'}`}>
       {/* Header */}
       <header className="border-b animate-slide-down shrink-0">
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
@@ -383,7 +383,7 @@ export default function Home() {
       </header>
 
       {/* Main Content */}
-      <main className={`flex-1 container mx-auto px-4 max-w-6xl ${activeTab === 'chat' ? 'flex flex-col pb-20' : 'py-6 sm:py-8 pb-24'}`}>
+      <main className={`flex-1 container mx-auto px-4 max-w-6xl ${activeTab === 'chat' ? 'flex flex-col pb-16 min-h-0' : 'py-6 sm:py-8 pb-24'}`}>
         {/* Workouts Tab */}
         {activeTab === 'workouts' && (
           <>
