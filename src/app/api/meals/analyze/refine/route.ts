@@ -6,6 +6,26 @@ function getOpenAI() {
   return new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 }
 
+const SYSTEM_PROMPT = `You are a nutrition analysis assistant. You previously analyzed a meal and provided an estimate. The user wants to refine the analysis with additional information. Update the description, macros, and per-item breakdown accordingly.
+
+Always respond with valid JSON in this exact format:
+{
+  "description": "Brief description of the meal (max 60 chars)",
+  "macros": {
+    "calories": <number>,
+    "protein": <number in grams>,
+    "carbs": <number in grams>,
+    "fat": <number in grams>
+  },
+  "items": [
+    {
+      "name": "Item name with estimated quantity",
+      "macros": { "calories": 0, "protein": 0, "carbs": 0, "fat": 0 }
+    }
+  ]
+}
+Only return the JSON, no other text.`;
+
 // POST /api/meals/analyze/refine - Refine a meal analysis based on user feedback
 export async function POST(request: NextRequest) {
   try {
@@ -16,7 +36,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { description, macros, refinement, context } = body;
+    const { description, macros, items, refinement, context } = body;
     const contextText = typeof context === 'string' ? context.trim().slice(0, 500) : '';
 
     if (!description || !macros || !refinement) {
@@ -29,23 +49,10 @@ export async function POST(request: NextRequest) {
     const response = await openai.chat.completions.create({
       model: 'gpt-5.2',
       messages: [
-        {
-          role: 'system',
-          content: `You are a nutrition analysis assistant. You previously analyzed a meal and provided an estimate. The user wants to refine the analysis with additional information. Update the description and macros accordingly. Always respond with valid JSON in this exact format:
-{
-  "description": "Brief description of the meal (max 60 chars)",
-  "macros": {
-    "calories": <number>,
-    "protein": <number in grams>,
-    "carbs": <number in grams>,
-    "fat": <number in grams>
-  }
-}
-Only return the JSON, no other text.`,
-        },
+        { role: 'system', content: SYSTEM_PROMPT },
         {
           role: 'assistant',
-          content: JSON.stringify({ description, macros }),
+          content: JSON.stringify({ description, macros, items }),
         },
         {
           role: 'user',
@@ -54,7 +61,7 @@ Only return the JSON, no other text.`,
             : `Please update the analysis: ${refinement}`,
         },
       ],
-      max_completion_tokens: 200,
+      max_completion_tokens: 500,
       temperature: 0.3,
     });
 
@@ -71,7 +78,14 @@ Only return the JSON, no other text.`,
 
     const analysis = JSON.parse(cleanContent);
 
-    return NextResponse.json(analysis);
+    // Defensive fallback for items
+    const responseItems = Array.isArray(analysis.items) ? analysis.items : [];
+
+    return NextResponse.json({
+      description: analysis.description,
+      macros: analysis.macros,
+      items: responseItems,
+    });
   } catch (error: any) {
     console.error('Error refining meal analysis:', error);
 

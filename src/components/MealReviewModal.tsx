@@ -4,8 +4,8 @@ import { useState, useRef, useEffect } from 'react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Macros, MealCategory, MEAL_CATEGORIES } from '@/types/meal';
-import { X, Loader2, Send, Sparkles, Pencil, Save } from 'lucide-react';
+import { Macros, MealItem, MealCategory, MEAL_CATEGORIES } from '@/types/meal';
+import { X, Loader2, Send, Sparkles, Pencil, Save, ChevronDown } from 'lucide-react';
 
 interface RefinementMessage {
   role: 'user' | 'assistant';
@@ -16,6 +16,7 @@ interface RefinementMessage {
 interface MealReviewModalProps {
   description: string;
   macros: Macros;
+  items?: MealItem[];
   category: MealCategory;
   analysisContext?: string;
   onConfirm: (description: string, macros: Macros, category: MealCategory) => void;
@@ -26,6 +27,7 @@ interface MealReviewModalProps {
 export function MealReviewModal({
   description: initialDescription,
   macros: initialMacros,
+  items: initialItems,
   category: initialCategory,
   analysisContext,
   onConfirm,
@@ -34,11 +36,13 @@ export function MealReviewModal({
 }: MealReviewModalProps) {
   const [description, setDescription] = useState(initialDescription);
   const [macros, setMacros] = useState<Macros>(initialMacros);
+  const [items, setItems] = useState<MealItem[] | undefined>(initialItems);
   const [category, setCategory] = useState<MealCategory>(initialCategory);
   const [refinementText, setRefinementText] = useState('');
   const [isRefining, setIsRefining] = useState(false);
   const [messages, setMessages] = useState<RefinementMessage[]>([]);
   const [isEditingMacros, setIsEditingMacros] = useState(false);
+  const [showItems, setShowItems] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -61,7 +65,13 @@ export function MealReviewModal({
       const res = await fetch('/api/meals/analyze/refine', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ description, macros, refinement: text, context: analysisContext }),
+        body: JSON.stringify({
+          description,
+          macros,
+          items,
+          refinement: text,
+          context: analysisContext,
+        }),
       });
 
       if (!res.ok) {
@@ -72,6 +82,7 @@ export function MealReviewModal({
       const updated = await res.json();
       setDescription(updated.description);
       setMacros(updated.macros);
+      if (updated.items) setItems(updated.items);
       setMessages((prev) => [
         ...prev,
         { role: 'assistant', text: updated.description, macros: updated.macros },
@@ -101,13 +112,13 @@ export function MealReviewModal({
 
   return (
     <div
-      className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center animate-backdrop-in"
+      className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-backdrop-in"
       onClick={() => {
         if (!isSaving) onCancel();
       }}
     >
       <Card
-        className="w-full sm:max-w-md mx-auto border-border/50 shadow-2xl shadow-black/25 animate-modal-in rounded-b-none sm:rounded-b-xl max-h-[90vh] flex flex-col"
+        className="w-full max-w-md border-border/50 shadow-2xl shadow-black/25 animate-modal-in rounded-xl max-h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <CardHeader className="pb-3 pt-4 px-4 shrink-0">
@@ -207,6 +218,36 @@ export function MealReviewModal({
               )}
             </div>
           </div>
+
+          {/* Per-item Breakdown */}
+          {items && items.length > 1 && (
+            <div>
+              <button
+                onClick={() => setShowItems((v) => !v)}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors w-full"
+              >
+                <ChevronDown
+                  className={`h-3.5 w-3.5 transition-transform ${showItems ? 'rotate-180' : ''}`}
+                />
+                <span>{showItems ? 'Hide' : 'Show'} item breakdown ({items.length} items)</span>
+              </button>
+              {showItems && (
+                <div className="mt-2 space-y-1.5">
+                  {items.map((item, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center justify-between text-xs bg-muted/30 rounded-md px-2.5 py-1.5 gap-2"
+                    >
+                      <span className="font-medium truncate">{item.name}</span>
+                      <span className="text-muted-foreground whitespace-nowrap shrink-0">
+                        {item.macros.calories} cal · {item.macros.protein}g P · {item.macros.carbs}g C · {item.macros.fat}g F
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Category Selector */}
           <div className="flex gap-1.5">
