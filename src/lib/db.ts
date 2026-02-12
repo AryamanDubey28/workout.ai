@@ -239,6 +239,41 @@ export async function initDatabase() {
       CREATE INDEX IF NOT EXISTS workout_presets_sort_order_idx ON workout_presets(user_id, sort_order);
     `;
 
+    // Create chat_conversations table
+    await sql`
+      CREATE TABLE IF NOT EXISTS chat_conversations (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        title VARCHAR(255) NOT NULL DEFAULT 'New Chat',
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS chat_conversations_user_idx ON chat_conversations(user_id, updated_at DESC);
+    `;
+
+    // Create chat_messages table
+    await sql`
+      CREATE TABLE IF NOT EXISTS chat_messages (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        role VARCHAR(20) NOT NULL,
+        content TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `;
+
+    // Add conversation_id column (migration for existing tables)
+    await sql`
+      ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS conversation_id UUID REFERENCES chat_conversations(id) ON DELETE CASCADE;
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS chat_messages_conv_idx ON chat_messages(conversation_id, created_at ASC);
+    `;
+
     console.log('Database initialized successfully');
   } catch (error) {
     console.error('Error initializing database:', error);
@@ -1001,5 +1036,154 @@ export async function upsertMacroGoal(userId: string, goal: MacroGoal): Promise<
   } catch (error) {
     console.error('Error upserting macro goal:', error);
     return null;
+  }
+}
+
+// ===== CHAT CONVERSATION FUNCTIONS =====
+
+export interface ChatConversation {
+  id: string;
+  title: string;
+  created_at: Date;
+  updated_at: Date;
+}
+
+// Get all conversations for a user
+export async function getConversations(userId: string): Promise<ChatConversation[]> {
+  try {
+    const result = await sql`
+      SELECT id, title, created_at, updated_at
+      FROM chat_conversations
+      WHERE user_id = ${userId}
+      ORDER BY updated_at DESC;
+    `;
+    return result.rows.map(row => ({
+      id: row.id,
+      title: row.title,
+      created_at: new Date(row.created_at),
+      updated_at: new Date(row.updated_at),
+    }));
+  } catch (error) {
+    console.error('Error getting conversations:', error);
+    return [];
+  }
+}
+
+// Create a new conversation
+export async function createConversation(userId: string, title: string = 'New Chat'): Promise<ChatConversation | null> {
+  try {
+    const result = await sql`
+      INSERT INTO chat_conversations (user_id, title)
+      VALUES (${userId}, ${title})
+      RETURNING id, title, created_at, updated_at;
+    `;
+    const row = result.rows[0];
+    return {
+      id: row.id,
+      title: row.title,
+      created_at: new Date(row.created_at),
+      updated_at: new Date(row.updated_at),
+    };
+  } catch (error) {
+    console.error('Error creating conversation:', error);
+    return null;
+  }
+}
+
+// Delete a conversation (cascades to messages)
+export async function deleteConversation(userId: string, conversationId: string): Promise<boolean> {
+  try {
+    const result = await sql`
+      DELETE FROM chat_conversations
+      WHERE id = ${conversationId} AND user_id = ${userId};
+    `;
+    return (result.rowCount ?? 0) > 0;
+  } catch (error) {
+    console.error('Error deleting conversation:', error);
+    return false;
+  }
+}
+
+// Update conversation title
+export async function updateConversationTitle(userId: string, conversationId: string, title: string): Promise<boolean> {
+  try {
+    await sql`
+      UPDATE chat_conversations
+      SET title = ${title}, updated_at = NOW()
+      WHERE id = ${conversationId} AND user_id = ${userId};
+    `;
+    return true;
+  } catch (error) {
+    console.error('Error updating conversation title:', error);
+    return false;
+  }
+}
+
+// Touch conversation updated_at
+export async function touchConversation(conversationId: string): Promise<void> {
+  try {
+    await sql`
+      UPDATE chat_conversations SET updated_at = NOW() WHERE id = ${conversationId};
+    `;
+  } catch (error) {
+    console.error('Error touching conversation:', error);
+  }
+}
+
+// ===== CHAT MESSAGE FUNCTIONS =====
+
+// Get chat messages for a conversation
+export async function getChatMessages(conversationId: string, limit: number = 100): Promise<Array<{ id: string; role: string; content: string; created_at: Date }>> {
+  try {
+    const result = await sql`
+      SELECT id, role, content, created_at
+      FROM chat_messages
+      WHERE conversation_id = ${conversationId}
+      ORDER BY created_at ASC
+      LIMIT ${limit};
+    `;
+    return result.rows.map(row => ({
+      id: row.id,
+      role: row.role,
+      content: row.content,
+      created_at: new Date(row.created_at),
+    }));
+  } catch (error) {
+    console.error('Error getting chat messages:', error);
+    return [];
+  }
+}
+
+// Save a chat message
+export async function saveChatMessage(userId: string, conversationId: string, role: string, content: string): Promise<{ id: string; role: string; content: string; created_at: Date } | null> {
+  try {
+    const result = await sql`
+      INSERT INTO chat_messages (user_id, conversation_id, role, content)
+      VALUES (${userId}, ${conversationId}, ${role}, ${content})
+      RETURNING id, role, content, created_at;
+    `;
+    const row = result.rows[0];
+    return {
+      id: row.id,
+      role: row.role,
+      content: row.content,
+      created_at: new Date(row.created_at),
+    };
+  } catch (error) {
+    console.error('Error saving chat message:', error);
+    return null;
+  }
+}
+
+// Clear all chat messages for a conversation
+export async function clearChatMessages(conversationId: string): Promise<boolean> {
+  try {
+    await sql`
+      DELETE FROM chat_messages WHERE conversation_id = ${conversationId};
+    `;
+    return true;
+  } catch (error) {
+    console.error('Error clearing chat messages:', error);
+    return false;
   }
 }
