@@ -18,12 +18,140 @@ function getOpenAI() {
   return new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 }
 
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 3.5);
+}
+
+function capitalize(s: string): string {
+  return s.replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function formatSetsRepsCompact(ex: any): string {
+  if (ex.useEffectiveReps) {
+    return `ER ${ex.effectiveRepsMax}/${ex.effectiveRepsTarget}`;
+  }
+  if (ex.repsPerSet && ex.repsPerSet.length > 0) {
+    const allSame = ex.repsPerSet.every((r: number) => r === ex.repsPerSet[0]);
+    if (allSame) return `${ex.repsPerSet.length}x${ex.repsPerSet[0]}`;
+    return `${ex.repsPerSet.length}x${ex.repsPerSet.join(',')}`;
+  }
+  return `${ex.sets || 0}x${ex.reps || 0}`;
+}
+
+function formatExerciseCompact(ex: any): string {
+  const w = ex.weight === 'BW' ? 'BW' : ex.weight ? `${ex.weight}kg` : '';
+
+  if (ex.useEffectiveReps) {
+    return `${ex.name} ${w} ER ${ex.effectiveRepsMax}/${ex.effectiveRepsTarget}`.trim();
+  }
+
+  if (ex.weightsPerSet && ex.weightsPerSet.length > 0) {
+    const parts = ex.weightsPerSet.map((wt: any, i: number) => {
+      const wtStr = wt === 'BW' ? 'BW' : wt ? `${wt}kg` : '?';
+      const reps = ex.repsPerSet?.[i] ?? '?';
+      return `${wtStr}x${reps}`;
+    });
+    return `${ex.name} ${parts.join(',')}`.trim();
+  }
+
+  if (ex.repsPerSet && ex.repsPerSet.length > 0) {
+    const allSame = ex.repsPerSet.every((r: number) => r === ex.repsPerSet[0]);
+    if (allSame) {
+      return `${ex.name} ${w} ${ex.repsPerSet.length}x${ex.repsPerSet[0]}`.trim();
+    }
+    return `${ex.name} ${w} ${ex.repsPerSet.length}x${ex.repsPerSet.join(',')}`.trim();
+  }
+
+  return `${ex.name} ${w} ${ex.sets || 0}x${ex.reps || 0}`.trim();
+}
+
+function formatWorkoutCompact(w: any): string {
+  const date = new Date(w.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const name = w.name || 'Untitled';
+  const exercises = w.exercises.map(formatExerciseCompact).join(' | ');
+  return `${date} ${name}: ${exercises}`;
+}
+
+function buildExerciseProgressions(workouts: any[]): string {
+  const exerciseMap = new Map<string, {
+    displayName: string;
+    sessions: number;
+    firstDate: Date;
+    lastDate: Date;
+    firstWeight: number;
+    lastWeight: number;
+    peakWeight: number;
+    lastSetsReps: string;
+    isBW: boolean;
+  }>();
+
+  // Iterate oldest-first to build chronological progression
+  for (let i = workouts.length - 1; i >= 0; i--) {
+    const w = workouts[i];
+    const date = new Date(w.date);
+    for (const ex of w.exercises) {
+      const key = ex.name.toLowerCase().trim();
+      const weight = ex.weight === 'BW' ? -1 : parseFloat(ex.weight) || 0;
+      const numericWeight = weight === -1 ? 0 : weight;
+
+      const existing = exerciseMap.get(key);
+      if (!existing) {
+        exerciseMap.set(key, {
+          displayName: ex.name,
+          sessions: 1,
+          firstDate: date,
+          lastDate: date,
+          firstWeight: numericWeight,
+          lastWeight: numericWeight,
+          peakWeight: numericWeight,
+          lastSetsReps: formatSetsRepsCompact(ex),
+          isBW: ex.weight === 'BW',
+        });
+      } else {
+        existing.sessions++;
+        existing.lastDate = date;
+        existing.lastWeight = numericWeight;
+        if (numericWeight > existing.peakWeight) existing.peakWeight = numericWeight;
+        existing.lastSetsReps = formatSetsRepsCompact(ex);
+      }
+    }
+  }
+
+  const entries = Array.from(exerciseMap.entries())
+    .sort((a, b) => b[1].sessions - a[1].sessions || a[0].localeCompare(b[0]));
+
+  const lines = entries.map(([, data]) => {
+    const first = data.firstDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const last = data.lastDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+    if (data.isBW) {
+      return `${capitalize(data.displayName)}: ${data.sessions}x, ${first}–${last}, BW, last: ${data.lastSetsReps}`;
+    }
+
+    const weightProgression = data.firstWeight === data.lastWeight
+      ? `${data.lastWeight}kg`
+      : `${data.firstWeight}kg→${data.lastWeight}kg`;
+    const peak = data.peakWeight > data.lastWeight ? ` (peak ${data.peakWeight}kg)` : '';
+
+    return `${capitalize(data.displayName)}: ${data.sessions}x, ${first}–${last}, ${weightProgression}${peak}, last: ${data.lastSetsReps}`;
+  });
+
+  return lines.join('\n');
+}
+
 function formatWorkoutsForContext(workouts: any[]): string {
   if (workouts.length === 0) return 'No workouts recorded yet.';
 
-  const recent = workouts.slice(0, 10);
+  const RECENT_COUNT = 15;
+  const MAX_WORKOUT_TOKENS = 45000;
 
-  return recent
+  // Section 1: Exercise progression summaries
+  const progressionSection = `EXERCISE PROGRESSION SUMMARY (${workouts.length} total workouts):\n`
+    + buildExerciseProgressions(workouts);
+
+  // Section 2: Recent workouts in full detail
+  const recentWorkouts = workouts.slice(0, RECENT_COUNT);
+  const recentSection = 'RECENT WORKOUTS (detailed):\n' + recentWorkouts
     .map((w) => {
       const date = new Date(w.date).toLocaleDateString('en-US', {
         weekday: 'short',
@@ -34,9 +162,17 @@ function formatWorkoutsForContext(workouts: any[]): string {
       const note = typeof w.note === 'string' ? w.note.trim() : '';
       const exercises = w.exercises
         .map((ex: any) => {
-          const weight = ex.weight === 'BW' ? 'Bodyweight' : ex.weight ? `${ex.weight}kg` : '';
+          const weight = ex.weight === 'BW' ? 'BW' : ex.weight ? `${ex.weight}kg` : '';
           if (ex.useEffectiveReps) {
-            return `  - ${ex.name} ${weight} ${ex.effectiveRepsMax}/${ex.effectiveRepsTarget} ER`;
+            return `  - ${ex.name} ${weight} ER ${ex.effectiveRepsMax}/${ex.effectiveRepsTarget}`;
+          }
+          if (ex.weightsPerSet && ex.weightsPerSet.length > 0) {
+            const parts = ex.weightsPerSet.map((wt: any, i: number) => {
+              const wtStr = wt === 'BW' ? 'BW' : wt ? `${wt}kg` : '?';
+              const reps = ex.repsPerSet?.[i] ?? '?';
+              return `${wtStr}x${reps}`;
+            });
+            return `  - ${ex.name} ${parts.join(', ')}`;
           }
           if (ex.repsPerSet && ex.repsPerSet.length > 0) {
             const sets = ex.repsPerSet.length;
@@ -50,6 +186,38 @@ function formatWorkoutsForContext(workouts: any[]): string {
       return `${date} - ${name}:\n${noteLine}${exercises}`;
     })
     .join('\n\n');
+
+  // Section 3: Older workouts in compact format (with dynamic budget)
+  const olderWorkouts = workouts.slice(RECENT_COUNT);
+
+  let olderSection = '';
+  if (olderWorkouts.length > 0) {
+    const tokensUsedSoFar = estimateTokens(progressionSection) + estimateTokens(recentSection);
+    const remainingBudget = MAX_WORKOUT_TOKENS - tokensUsedSoFar;
+
+    const compactLines: string[] = [];
+    let compactTokens = 0;
+    const headerLine = `OLDER WORKOUTS (compact, ${olderWorkouts.length} workouts):`;
+    compactTokens += estimateTokens(headerLine);
+
+    for (const w of olderWorkouts) {
+      const line = formatWorkoutCompact(w);
+      const lineTokens = estimateTokens(line);
+      if (compactTokens + lineTokens > remainingBudget) {
+        const remaining = olderWorkouts.length - compactLines.length;
+        compactLines.push(`... and ${remaining} more older workouts (progression summary above covers all)`);
+        break;
+      }
+      compactLines.push(line);
+      compactTokens += lineTokens;
+    }
+
+    olderSection = headerLine + '\n' + compactLines.join('\n');
+  }
+
+  const sections = [progressionSection, recentSection];
+  if (olderSection) sections.push(olderSection);
+  return sections.join('\n\n');
 }
 
 function formatMealsForContext(meals: any[]): string {
@@ -254,7 +422,7 @@ export async function POST(request: NextRequest) {
       messageCount: chatHistory.length,
     };
 
-    const systemMessage = `You are a knowledgeable fitness and workout assistant for ${session.name}. You have access to their profile metrics (age, weight, height, sex, activity level), recent workout history (including workout notes), today's meals, and their nutrition goals. You can provide advice on training, form, programming, recovery, and nutrition.
+    const systemMessage = `You are a knowledgeable fitness and workout assistant for ${session.name}. You have access to their profile metrics (age, weight, height, sex, activity level), their complete workout history (including workout notes), today's meals, and their nutrition goals. You can provide advice on training, form, programming, recovery, and nutrition.
 
 Current date context: ${currentDateUtcLong} (UTC date key: ${todayKey}, UTC timestamp: ${currentDateUtcIso}). Use this to reason about recency and interpret terms like today, yesterday, and last workout.
 Unit rules: bodyweight in the user profile is stored in pounds (lb). Workout exercise loads are stored in kilograms (kg), unless marked as Bodyweight/BW. Keep those units accurate in responses.
@@ -262,7 +430,7 @@ Unit rules: bodyweight in the user profile is stored in pounds (lb). Workout exe
 User profile:
 ${userProfileContext}
 
-Here are their recent workouts:
+Here is their complete workout history (progression summary first, then recent workouts in detail, then older workouts in compact format):
 ${workoutContext}
 
 Today's meals:
