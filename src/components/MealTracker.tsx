@@ -322,8 +322,8 @@ export function MealTracker() {
       />
 
       {/* Date Selector */}
-      <div className="flex items-center justify-between mb-6 animate-slide-up">
-        <Button variant="ghost" size="sm" onClick={handlePrevDay} className="interactive-scale">
+      <div className="flex items-center justify-between mb-5 animate-slide-up">
+        <Button variant="ghost" size="sm" onClick={handlePrevDay} className="interactive-scale h-9 w-9 p-0 rounded-lg">
           <ChevronLeft className="h-5 w-5" />
         </Button>
         <h2 className="text-lg font-semibold">{formatDateDisplay(selectedDate)}</h2>
@@ -332,38 +332,73 @@ export function MealTracker() {
           size="sm"
           onClick={handleNextDay}
           disabled={isToday}
-          className="interactive-scale"
+          className="interactive-scale h-9 w-9 p-0 rounded-lg"
         >
           <ChevronRight className="h-5 w-5" />
         </Button>
       </div>
 
+      {/* Daily Totals — top of page for at-a-glance progress */}
+      <div className="mb-5 p-4 rounded-2xl border border-border/50 bg-card/50 backdrop-blur-sm animate-slide-up">
+        <div className="grid grid-cols-4 gap-2">
+          <div className="text-center">
+            <div className="text-2xl font-bold tabular-nums">{Math.round(totals.calories)}</div>
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mt-0.5">
+              Cal {goal ? formatGoalLabel(totals.calories, goal.calories) : ''}
+            </div>
+            {goal && <ProgressBar current={totals.calories} target={goal.calories} color="bg-foreground/60" />}
+          </div>
+          <div className="text-center">
+            <div className="text-2xl font-bold text-blue-500 tabular-nums">{Math.round(totals.protein)}g</div>
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mt-0.5">
+              Protein {goal ? formatGoalLabel(totals.protein, goal.protein) : ''}
+            </div>
+            {goal && <ProgressBar current={totals.protein} target={goal.protein} color="bg-blue-500" />}
+          </div>
+          <div className="text-center">
+            <div className="text-2xl font-bold text-amber-500 tabular-nums">{Math.round(totals.carbs)}g</div>
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mt-0.5">
+              Carbs {goal ? formatGoalLabel(totals.carbs, goal.carbs) : ''}
+            </div>
+            {goal && <ProgressBar current={totals.carbs} target={goal.carbs} color="bg-amber-500" />}
+          </div>
+          <div className="text-center">
+            <div className="text-2xl font-bold text-rose-500 tabular-nums">{Math.round(totals.fat)}g</div>
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mt-0.5">
+              Fat {goal ? formatGoalLabel(totals.fat, goal.fat) : ''}
+            </div>
+            {goal && <ProgressBar current={totals.fat} target={goal.fat} color="bg-rose-500" />}
+          </div>
+        </div>
+      </div>
+
       {/* Log a Meal Card */}
       <Card
         ref={uploadCardRef}
-        className="mb-6 border-border/60 bg-card/70 backdrop-blur-sm animate-slide-up animation-delay-75"
+        className="mb-5 border-border/60 bg-card/70 backdrop-blur-sm animate-slide-up animation-delay-75 rounded-2xl overflow-hidden"
       >
-        <CardContent className="p-4 sm:p-6">
+        <CardContent className="p-4 sm:p-5">
           <div className="max-w-2xl mx-auto">
-            <div className="text-center">
-              <div className="mx-auto w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mb-3">
-                <UtensilsCrossed className="h-7 w-7 text-primary" />
+            {/* Compact header */}
+            <div className="flex items-center gap-2.5 mb-3">
+              <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                <UtensilsCrossed className="h-4.5 w-4.5 text-primary" />
               </div>
-              <h3 className="text-base sm:text-lg font-semibold">Log a Meal</h3>
-              <p className="text-sm text-muted-foreground mt-1">
-                Describe what you ate, snap a photo, or both.
-              </p>
+              <div>
+                <h3 className="text-sm font-semibold leading-none">Log a Meal</h3>
+                <p className="text-[11px] text-muted-foreground mt-0.5">Describe, snap a photo, or both</p>
+              </div>
             </div>
 
             {/* Category selector */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4">
+            <div className="flex gap-1.5 mb-3">
               {MEAL_CATEGORIES.map((cat) => (
                 <button
                   key={cat.key}
                   onClick={() => setQuickAddCategory(cat.key)}
-                  className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                  className={`flex-1 rounded-full px-2 py-1.5 text-xs font-medium transition-all ${
                     quickAddCategory === cat.key
-                      ? 'bg-primary text-primary-foreground'
+                      ? 'bg-primary text-primary-foreground shadow-sm'
                       : 'bg-muted/60 text-muted-foreground hover:bg-muted'
                   }`}
                 >
@@ -373,30 +408,22 @@ export function MealTracker() {
             </div>
 
             {/* Meal description */}
-            <div className="mt-4 text-left">
-              <label
-                htmlFor="meal-description"
-                className="text-xs font-medium text-muted-foreground uppercase tracking-wider"
-              >
-                Describe your meal
-              </label>
-              <textarea
-                id="meal-description"
-                value={mealDescription}
-                onChange={(e) => setMealDescription(e.target.value)}
-                placeholder="e.g. Protein shake with whole milk and mixed berries"
-                className="mt-2 min-h-20 w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                maxLength={500}
-              />
-            </div>
+            <textarea
+              id="meal-description"
+              value={mealDescription}
+              onChange={(e) => setMealDescription(e.target.value)}
+              placeholder="e.g. Protein shake with whole milk and mixed berries"
+              className="min-h-[72px] w-full resize-y rounded-xl border border-input bg-background px-3 py-2.5 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              maxLength={500}
+            />
 
-            {/* Photo attach row */}
+            {/* Actions row */}
             <div className="mt-3 flex items-center gap-2">
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => fileInputRef.current?.click()}
-                className="text-xs"
+                className="text-xs rounded-lg"
               >
                 <Camera className="h-3.5 w-3.5 mr-1.5" />
                 {selectedFile ? 'Change Photo' : 'Attach Photo'}
@@ -423,8 +450,7 @@ export function MealTracker() {
             <Button
               onClick={handleAnalyze}
               disabled={isAnalyzing || !canAnalyze}
-              size="lg"
-              className="mt-4 h-12 sm:h-14 px-8 text-sm sm:text-base w-full sm:w-auto interactive-scale"
+              className="mt-3 w-full h-11 text-sm interactive-scale rounded-xl"
             >
               {isAnalyzing ? (
                 <>
@@ -447,45 +473,6 @@ export function MealTracker() {
         </CardContent>
       </Card>
 
-      {/* Daily Totals */}
-      <Card className="mb-6 border-border/50 bg-card/50 backdrop-blur-sm animate-slide-up animation-delay-75">
-        <CardContent className="p-4">
-          <h3 className="text-xs text-muted-foreground uppercase tracking-wider mb-3 font-medium">
-            Daily Totals {goal && <span className="normal-case">vs Goal</span>}
-          </h3>
-          <div className="grid grid-cols-4 gap-3">
-            <div className="text-center">
-              <div className="text-xl font-bold">{Math.round(totals.calories)}</div>
-              <div className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                Cal {goal ? formatGoalLabel(totals.calories, goal.calories) : ''}
-              </div>
-              {goal && <ProgressBar current={totals.calories} target={goal.calories} color="bg-foreground/60" />}
-            </div>
-            <div className="text-center">
-              <div className="text-xl font-bold text-blue-500">{Math.round(totals.protein)}g</div>
-              <div className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                Protein {goal ? formatGoalLabel(totals.protein, goal.protein) : ''}
-              </div>
-              {goal && <ProgressBar current={totals.protein} target={goal.protein} color="bg-blue-500" />}
-            </div>
-            <div className="text-center">
-              <div className="text-xl font-bold text-amber-500">{Math.round(totals.carbs)}g</div>
-              <div className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                Carbs {goal ? formatGoalLabel(totals.carbs, goal.carbs) : ''}
-              </div>
-              {goal && <ProgressBar current={totals.carbs} target={goal.carbs} color="bg-amber-500" />}
-            </div>
-            <div className="text-center">
-              <div className="text-xl font-bold text-rose-500">{Math.round(totals.fat)}g</div>
-              <div className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                Fat {goal ? formatGoalLabel(totals.fat, goal.fat) : ''}
-              </div>
-              {goal && <ProgressBar current={totals.fat} target={goal.fat} color="bg-rose-500" />}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Food Bank */}
       <Button
         variant="outline"
@@ -494,7 +481,7 @@ export function MealTracker() {
           setIsFoodBankOpen(true);
         }}
         disabled={isAnalyzing || isSavingMeal}
-        className="w-full mb-6 h-11 interactive-scale animate-slide-up animation-delay-150"
+        className="w-full mb-5 h-11 interactive-scale animate-slide-up animation-delay-150 rounded-xl"
       >
         <Bookmark className="h-4 w-4 mr-2" />
         Food Bank

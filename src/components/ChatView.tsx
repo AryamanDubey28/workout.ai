@@ -324,29 +324,34 @@ export function ChatView() {
   return (
     <div className="flex flex-col h-full animate-fade-in-blur relative">
       {/* Header */}
-      <div className="flex items-center justify-between pb-3 shrink-0">
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between pb-3 border-b mb-3 shrink-0">
+        <div className="flex items-center gap-3">
           <Button
             variant="ghost"
             size="sm"
             onClick={() => setShowSidebar(true)}
-            className="h-8 w-8 p-0"
+            className="h-9 w-9 p-0 rounded-lg"
           >
-            <PanelLeft className="h-4 w-4" />
+            <PanelLeft className="h-5 w-5" />
           </Button>
-          <div>
-            <h3 className="text-sm font-semibold leading-none">Workout Assistant</h3>
-            <p className="text-[11px] text-muted-foreground mt-0.5">AI-powered fitness coach</p>
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+              <Bot className="h-4 w-4 text-primary" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold leading-none">Workout Assistant</h3>
+              <p className="text-[11px] text-muted-foreground mt-0.5">AI-powered fitness coach</p>
+            </div>
           </div>
         </div>
         <Button
           variant="ghost"
           size="sm"
           onClick={handleNewChat}
-          className="h-8 w-8 p-0"
+          className="h-9 w-9 p-0 rounded-lg"
           title="New Chat"
         >
-          <Plus className="h-4 w-4" />
+          <Plus className="h-5 w-5" />
         </Button>
       </div>
 

@@ -16,6 +16,7 @@ import { PresetManager } from "@/components/PresetManager";
 import { SplitReminderBanner } from "@/components/SplitReminderBanner";
 import { Workout, WorkoutPreset, SplitReminder } from "@/types/workout";
 import { User as UserType } from "@/types/user";
+import { useScrollDirection } from "@/hooks/useScrollDirection";
 
 export default function Home() {
   const [user, setUser] = useState<UserType | null>(null);
@@ -290,6 +291,8 @@ export default function Home() {
   };
 
   const isFormOpen = isCreating || editingWorkout;
+  const shouldAutoHide = activeTab !== 'chat' && !isFormOpen && !showProfile && !showPresetManager;
+  const { barsHidden } = useScrollDirection({ enabled: shouldAutoHide });
 
   // Show loading spinner
   if (isLoading) {
@@ -360,30 +363,34 @@ export default function Home() {
 
   return (
     <div className={`bg-background animate-fade-in-blur flex flex-col ${activeTab === 'chat' ? 'h-[100dvh] overflow-hidden' : 'min-h-screen'}`}>
-      {/* Header */}
-      <header className="border-b animate-slide-down shrink-0">
-        <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <div className="flex items-center space-x-2">
-            <Dumbbell className="h-8 w-8 text-primary" />
-            <h1 className="text-2xl font-bold">Workout AI</h1>
+      {/* Header — only shown on workouts tab */}
+      {activeTab === 'workouts' && (
+        <header className={`border-b animate-slide-down shrink-0 sticky top-0 z-40 bg-background/80 backdrop-blur-lg transition-transform duration-300 ease-in-out ${
+          barsHidden ? '-translate-y-full' : 'translate-y-0'
+        }`}>
+          <div className="container mx-auto px-4 py-4 flex justify-between items-center">
+            <div className="flex items-center space-x-2">
+              <Dumbbell className="h-8 w-8 text-primary" />
+              <h1 className="text-2xl font-bold">Workout AI</h1>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowProfile(true)}
+                className="flex items-center gap-2 interactive-scale"
+              >
+                <User className="h-4 w-4" />
+                {user.name}
+              </Button>
+              <ThemeToggle />
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowProfile(true)}
-              className="flex items-center gap-2 interactive-scale"
-            >
-              <User className="h-4 w-4" />
-              {user.name}
-            </Button>
-            <ThemeToggle />
-          </div>
-        </div>
-      </header>
+        </header>
+      )}
 
       {/* Main Content */}
-      <main className={`flex-1 container mx-auto px-4 max-w-6xl ${activeTab === 'chat' ? 'flex flex-col pb-28 min-h-0' : 'py-6 sm:py-8 pb-24'}`}>
+      <main className={`flex-1 container mx-auto px-4 max-w-6xl ${activeTab === 'chat' ? 'flex flex-col pb-20 min-h-0' : 'py-6 sm:py-8 pb-24'}`}>
         {/* Workouts Tab */}
         {activeTab === 'workouts' && (
           <>
@@ -478,7 +485,7 @@ export default function Home() {
       />
 
       {/* Bottom Navigation */}
-      <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />
+      <BottomNav activeTab={activeTab} onTabChange={setActiveTab} hidden={barsHidden} />
     </div>
   );
 }

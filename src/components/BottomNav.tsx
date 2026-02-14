@@ -7,6 +7,7 @@ export type TabId = 'workouts' | 'meals' | 'chat';
 interface BottomNavProps {
   activeTab: TabId;
   onTabChange: (tab: TabId) => void;
+  hidden?: boolean;
 }
 
 const tabs: { id: TabId; label: string; icon: typeof Dumbbell }[] = [
@@ -15,9 +16,11 @@ const tabs: { id: TabId; label: string; icon: typeof Dumbbell }[] = [
   { id: 'chat', label: 'Chat', icon: MessageCircle },
 ];
 
-export function BottomNav({ activeTab, onTabChange }: BottomNavProps) {
+export function BottomNav({ activeTab, onTabChange, hidden = false }: BottomNavProps) {
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 border-t bg-background/80 backdrop-blur-lg safe-area-bottom">
+    <nav className={`fixed bottom-0 left-0 right-0 z-50 border-t bg-background/80 backdrop-blur-lg safe-area-bottom transition-transform duration-300 ease-in-out ${
+      hidden ? 'translate-y-full' : 'translate-y-0'
+    }`}>
       <div className="flex items-center justify-around h-16 max-w-lg mx-auto">
         {tabs.map(({ id, label, icon: Icon }) => {
           const isActive = activeTab === id;
