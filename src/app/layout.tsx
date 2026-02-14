@@ -17,6 +17,9 @@ export const metadata: Metadata = {
   title: "Workout AI",
   description: "Your personal AI-powered workout companion",
   manifest: "/manifest.json",
+  icons: {
+    apple: "/apple-touch-icon.png",
+  },
 };
 
 export const viewport: Viewport = {
