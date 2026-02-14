@@ -68,8 +68,18 @@ function formatExerciseCompact(ex: any): string {
 function formatWorkoutCompact(w: any): string {
   const date = new Date(w.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   const name = w.name || 'Untitled';
-  const exercises = w.exercises.map(formatExerciseCompact).join(' | ');
-  return `${date} ${name}: ${exercises}`;
+  let details = '';
+  if ((w.type || 'strength') === 'run' && w.runData) {
+    const rd = w.runData;
+    const pace = rd.distanceKm > 0 ? ((rd.durationSeconds / 60) / rd.distanceKm).toFixed(1) : '?';
+    details = `Run: ${rd.distanceKm}km, ${Math.floor(rd.durationSeconds / 60)}min, ${pace} min/km`;
+    if (w.exercises.length > 0) {
+      details += ' + ' + w.exercises.map(formatExerciseCompact).join(' | ');
+    }
+  } else {
+    details = w.exercises.map(formatExerciseCompact).join(' | ');
+  }
+  return `${date} ${name}: ${details}`;
 }
 
 function buildExerciseProgressions(workouts: any[]): string {
@@ -183,7 +193,13 @@ function formatWorkoutsForContext(workouts: any[]): string {
         })
         .join('\n');
       const noteLine = note ? `  Note: ${note}\n` : '';
-      return `${date} - ${name}:\n${noteLine}${exercises}`;
+      let runLine = '';
+      if ((w.type || 'strength') === 'run' && w.runData) {
+        const rd = w.runData;
+        const pace = rd.distanceKm > 0 ? ((rd.durationSeconds / 60) / rd.distanceKm).toFixed(1) : '?';
+        runLine = `  Run: ${rd.distanceKm}km in ${Math.floor(rd.durationSeconds / 60)}m ${rd.durationSeconds % 60}s (pace: ${pace} min/km)\n`;
+      }
+      return `${date} - ${name}:\n${noteLine}${runLine}${exercises}`;
     })
     .join('\n\n');
 

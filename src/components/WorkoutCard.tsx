@@ -4,7 +4,8 @@ import { Workout } from '@/types/workout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Trash2, Edit3 } from 'lucide-react';
+import { Trash2, Edit3, Footprints } from 'lucide-react';
+import { calculatePace, formatPace, formatDuration, formatDistance } from '@/lib/utils';
 
 interface WorkoutCardProps {
   workout: Workout;
@@ -82,12 +83,24 @@ export function WorkoutCard({ workout, onClick, onDelete }: WorkoutCardProps) {
                 year: workout.date.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined
               })}</span>
               <div className="w-1 h-1 bg-muted-foreground/50 rounded-full" />
-              <span className="text-xs">{workout.exercises.length} exercise{workout.exercises.length !== 1 ? 's' : ''}</span>
+              {(workout.type || 'strength') === 'run' ? (
+                <span className="text-xs flex items-center gap-1">
+                  <Footprints className="h-3 w-3" />
+                  Run
+                  {workout.exercises.length > 0 && ` + ${workout.exercises.length} exercise${workout.exercises.length !== 1 ? 's' : ''}`}
+                </span>
+              ) : (
+                <span className="text-xs">{workout.exercises.length} exercise{workout.exercises.length !== 1 ? 's' : ''}</span>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <Badge variant="secondary" className="text-xs transition-all duration-200 group-hover:bg-primary/10 group-hover:text-primary">
-              {workout.exercises.length}
+              {(workout.type || 'strength') === 'run' ? (
+                <Footprints className="h-3 w-3" />
+              ) : (
+                workout.exercises.length
+              )}
             </Badge>
             <div className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all duration-300 transform sm:translate-x-2 sm:group-hover:translate-x-0">
               <Button
@@ -121,6 +134,25 @@ export function WorkoutCard({ workout, onClick, onDelete }: WorkoutCardProps) {
       
       <CardContent className="pt-0 relative" onClick={onClick}>
         <div className="space-y-1.5 sm:space-y-2">
+          {workout.runData && (
+            <div className="flex items-center gap-3 text-sm mb-3 pb-3 border-b border-border/30">
+              <Footprints className="h-4 w-4 text-primary shrink-0" />
+              <div className="flex flex-wrap gap-x-3 gap-y-1 text-muted-foreground group-hover:text-foreground/80 transition-colors duration-200">
+                <span>{formatDistance(workout.runData.distanceKm)}</span>
+                <span className="text-border">|</span>
+                <span>{formatDuration(workout.runData.durationSeconds)}</span>
+                {(() => {
+                  const pace = calculatePace(workout.runData!.distanceKm, workout.runData!.durationSeconds);
+                  return pace ? (
+                    <>
+                      <span className="text-border">|</span>
+                      <span className="text-primary font-medium">{formatPace(pace)}</span>
+                    </>
+                  ) : null;
+                })()}
+              </div>
+            </div>
+          )}
           {displayExercises.map((exercise, index) => (
             <div 
               key={exercise.id} 

@@ -1,6 +1,6 @@
 import { sql } from '@vercel/postgres';
 import { User, CreateUserData } from '@/types/user';
-import { Workout, WorkoutPreset, SplitReminder, Exercise } from '@/types/workout';
+import { Workout, WorkoutPreset, SplitReminder, Exercise, WorkoutType } from '@/types/workout';
 import { Meal, MealCategory, Macros, MacroGoal } from '@/types/meal';
 import bcrypt from 'bcryptjs';
 
@@ -114,6 +114,16 @@ export async function initDatabase() {
     await sql`
       ALTER TABLE workouts
       ADD COLUMN IF NOT EXISTS note TEXT;
+    `;
+
+    await sql`
+      ALTER TABLE workouts
+      ADD COLUMN IF NOT EXISTS type VARCHAR(20) NOT NULL DEFAULT 'strength';
+    `;
+
+    await sql`
+      ALTER TABLE workouts
+      ADD COLUMN IF NOT EXISTS run_data JSONB;
     `;
 
     // Create index on user_id for faster queries
@@ -597,25 +607,37 @@ export async function getUserExerciseNames(userId: string): Promise<string[]> {
 
 // ===== WORKOUT FUNCTIONS =====
 
+function mapWorkoutRow(row: any): Workout {
+  return {
+    id: row.id,
+    name: row.name || undefined,
+    note: row.note || undefined,
+    date: new Date(row.date),
+    type: (row.type as WorkoutType) || 'strength',
+    runData: row.run_data || undefined,
+    exercises: row.exercises || [],
+    createdAt: new Date(row.created_at),
+    updatedAt: new Date(row.updated_at),
+  };
+}
+
 // Create a new workout
 export async function createWorkout(userId: string, workout: Workout): Promise<Workout | null> {
   try {
     const result = await sql`
-      INSERT INTO workouts (id, user_id, name, note, date, exercises, created_at, updated_at)
-      VALUES (${workout.id}, ${userId}, ${workout.name || null}, ${workout.note || null}, ${workout.date.toISOString()}, ${JSON.stringify(workout.exercises)}, ${workout.createdAt.toISOString()}, ${workout.updatedAt.toISOString()})
-      RETURNING id, name, note, date, exercises, created_at, updated_at;
+      INSERT INTO workouts (id, user_id, name, note, date, type, run_data, exercises, created_at, updated_at)
+      VALUES (
+        ${workout.id}, ${userId}, ${workout.name || null}, ${workout.note || null},
+        ${workout.date.toISOString()},
+        ${workout.type || 'strength'},
+        ${workout.runData ? JSON.stringify(workout.runData) : null},
+        ${JSON.stringify(workout.exercises)},
+        ${workout.createdAt.toISOString()}, ${workout.updatedAt.toISOString()}
+      )
+      RETURNING id, name, note, date, type, run_data, exercises, created_at, updated_at;
     `;
-    
-    const row = result.rows[0];
-    return {
-      id: row.id,
-      name: row.name,
-      note: row.note || undefined,
-      date: new Date(row.date),
-      exercises: row.exercises,
-      createdAt: new Date(row.created_at),
-      updatedAt: new Date(row.updated_at),
-    } as Workout;
+
+    return mapWorkoutRow(result.rows[0]);
   } catch (error) {
     console.error('Error creating workout:', error);
     return null;
@@ -626,21 +648,13 @@ export async function createWorkout(userId: string, workout: Workout): Promise<W
 export async function getUserWorkouts(userId: string): Promise<Workout[]> {
   try {
     const result = await sql`
-      SELECT id, name, note, date, exercises, created_at, updated_at
+      SELECT id, name, note, date, type, run_data, exercises, created_at, updated_at
       FROM workouts
       WHERE user_id = ${userId}
       ORDER BY date DESC, created_at DESC;
     `;
-    
-    return result.rows.map(row => ({
-      id: row.id,
-      name: row.name,
-      note: row.note || undefined,
-      date: new Date(row.date),
-      exercises: row.exercises,
-      createdAt: new Date(row.created_at),
-      updatedAt: new Date(row.updated_at),
-    })) as Workout[];
+
+    return result.rows.map(mapWorkoutRow);
   } catch (error) {
     console.error('Error getting user workouts:', error);
     return [];
@@ -651,7 +665,7 @@ export async function getUserWorkouts(userId: string): Promise<Workout[]> {
 export async function updateWorkout(userId: string, workoutId: string, workout: Partial<Workout>): Promise<Workout | null> {
   try {
     const existingResult = await sql`
-      SELECT id, name, note, date, exercises, created_at, updated_at
+      SELECT id, name, note, date, type, run_data, exercises, created_at, updated_at
       FROM workouts
       WHERE id = ${workoutId} AND user_id = ${userId}
       LIMIT 1;
@@ -665,31 +679,26 @@ export async function updateWorkout(userId: string, workoutId: string, workout: 
     const name = workout.name !== undefined ? workout.name : existing.name;
     const note = workout.note !== undefined ? workout.note : existing.note;
     const date = workout.date !== undefined ? workout.date : new Date(existing.date);
+    const type = workout.type !== undefined ? workout.type : (existing.type || 'strength');
+    const runData = workout.runData !== undefined ? workout.runData : existing.run_data;
     const exercises = workout.exercises !== undefined ? workout.exercises : existing.exercises;
     const updatedAt = workout.updatedAt ? workout.updatedAt.toISOString() : new Date().toISOString();
 
     const result = await sql`
-      UPDATE workouts 
-      SET 
+      UPDATE workouts
+      SET
         name = ${name || null},
         note = ${note || null},
         date = ${date.toISOString()},
+        type = ${type},
+        run_data = ${runData ? JSON.stringify(runData) : null},
         exercises = ${JSON.stringify(exercises)},
         updated_at = ${updatedAt}
       WHERE id = ${workoutId} AND user_id = ${userId}
-      RETURNING id, name, note, date, exercises, created_at, updated_at;
+      RETURNING id, name, note, date, type, run_data, exercises, created_at, updated_at;
     `;
-    
-    const row = result.rows[0];
-    return {
-      id: row.id,
-      name: row.name,
-      note: row.note || undefined,
-      date: new Date(row.date),
-      exercises: row.exercises,
-      createdAt: new Date(row.created_at),
-      updatedAt: new Date(row.updated_at),
-    } as Workout;
+
+    return mapWorkoutRow(result.rows[0]);
   } catch (error) {
     console.error('Error updating workout:', error);
     return null;

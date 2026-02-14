@@ -1,3 +1,10 @@
+export type WorkoutType = 'strength' | 'run';
+
+export interface RunData {
+  distanceKm: number;
+  durationSeconds: number;
+}
+
 export interface Exercise {
   id: string;
   name: string;
@@ -16,6 +23,8 @@ export interface Workout {
   name?: string;
   note?: string;
   date: Date;
+  type?: WorkoutType;
+  runData?: RunData;
   exercises: Exercise[];
   createdAt: Date;
   updatedAt: Date;

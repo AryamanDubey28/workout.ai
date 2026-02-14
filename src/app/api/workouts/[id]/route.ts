@@ -83,9 +83,11 @@ export async function PUT(
     const hasDate = Object.prototype.hasOwnProperty.call(body, 'date');
     const hasExercises = Object.prototype.hasOwnProperty.call(body, 'exercises');
     const hasNote = Object.prototype.hasOwnProperty.call(body, 'note');
+    const hasType = Object.prototype.hasOwnProperty.call(body, 'type');
+    const hasRunData = Object.prototype.hasOwnProperty.call(body, 'runData');
 
     // Validate that at least one field is being updated
-    if (!hasName && !hasDate && !hasExercises && !hasNote) {
+    if (!hasName && !hasDate && !hasExercises && !hasNote && !hasType && !hasRunData) {
       return NextResponse.json(
         { error: 'At least one field must be provided for update' },
         { status: 400 }
@@ -129,6 +131,14 @@ export async function PUT(
 
     if (hasNote) {
       workoutUpdates.note = typeof body.note === 'string' ? body.note.trim() : '';
+    }
+
+    if (hasType) {
+      workoutUpdates.type = body.type || 'strength';
+    }
+
+    if (hasRunData) {
+      workoutUpdates.runData = body.runData || undefined;
     }
 
     const updatedWorkout = await updateWorkout(session.userId, workoutId, workoutUpdates);
