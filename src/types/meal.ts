@@ -49,6 +49,14 @@ export interface MacroGoal {
   sex?: Sex;
 }
 
+export interface SavedMeal {
+  id: string;
+  name: string;
+  description: string;
+  macros: Macros;
+  createdAt: Date;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';

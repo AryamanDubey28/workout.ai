@@ -1,7 +1,7 @@
 import { sql } from '@vercel/postgres';
 import { User, CreateUserData } from '@/types/user';
 import { Workout, WorkoutPreset, SplitReminder, Exercise, WorkoutType } from '@/types/workout';
-import { Meal, MealCategory, Macros, MacroGoal } from '@/types/meal';
+import { Meal, MealCategory, Macros, MacroGoal, SavedMeal } from '@/types/meal';
 import bcrypt from 'bcryptjs';
 
 function parseDateOnly(value: string): Date | null {
@@ -209,6 +209,25 @@ export async function initDatabase() {
     // Add meal_category column (migration for existing tables)
     await sql`
       ALTER TABLE meals ADD COLUMN IF NOT EXISTS meal_category VARCHAR(20) NOT NULL DEFAULT 'snack';
+    `;
+
+    // Create saved_meals table (food bank)
+    await sql`
+      CREATE TABLE IF NOT EXISTS saved_meals (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        description VARCHAR(500) NOT NULL,
+        calories INTEGER NOT NULL DEFAULT 0,
+        protein DECIMAL(6,1) NOT NULL DEFAULT 0,
+        carbs DECIMAL(6,1) NOT NULL DEFAULT 0,
+        fat DECIMAL(6,1) NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS saved_meals_user_id_idx ON saved_meals(user_id);
     `;
 
     // Create macro_goals table
@@ -976,6 +995,93 @@ export async function deleteMeal(userId: string, mealId: string): Promise<boolea
   } catch (error) {
     console.error('Error deleting meal:', error);
     return false;
+  }
+}
+
+// ===== SAVED MEAL (FOOD BANK) FUNCTIONS =====
+
+function mapSavedMealRow(row: any): SavedMeal {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    macros: {
+      calories: Number(row.calories),
+      protein: Number(row.protein),
+      carbs: Number(row.carbs),
+      fat: Number(row.fat),
+    },
+    createdAt: new Date(row.created_at),
+  };
+}
+
+export async function createSavedMeal(
+  userId: string,
+  meal: { id: string; name: string; description: string; macros: Macros }
+): Promise<SavedMeal | null> {
+  try {
+    const result = await sql`
+      INSERT INTO saved_meals (id, user_id, name, description, calories, protein, carbs, fat)
+      VALUES (
+        ${meal.id}, ${userId}, ${meal.name}, ${meal.description},
+        ${meal.macros.calories}, ${meal.macros.protein}, ${meal.macros.carbs}, ${meal.macros.fat}
+      )
+      RETURNING id, name, description, calories, protein, carbs, fat, created_at;
+    `;
+    return mapSavedMealRow(result.rows[0]);
+  } catch (error) {
+    console.error('Error creating saved meal:', error);
+    return null;
+  }
+}
+
+export async function getUserSavedMeals(userId: string): Promise<SavedMeal[]> {
+  try {
+    const result = await sql`
+      SELECT id, name, description, calories, protein, carbs, fat, created_at
+      FROM saved_meals
+      WHERE user_id = ${userId}
+      ORDER BY name ASC;
+    `;
+    return result.rows.map(mapSavedMealRow);
+  } catch (error) {
+    console.error('Error getting saved meals:', error);
+    return [];
+  }
+}
+
+export async function deleteSavedMeal(userId: string, mealId: string): Promise<boolean> {
+  try {
+    const result = await sql`
+      DELETE FROM saved_meals
+      WHERE id = ${mealId} AND user_id = ${userId};
+    `;
+    return (result.rowCount ?? 0) > 0;
+  } catch (error) {
+    console.error('Error deleting saved meal:', error);
+    return false;
+  }
+}
+
+export async function updateSavedMeal(
+  userId: string,
+  mealId: string,
+  meal: { name: string; description: string; macros: Macros }
+): Promise<SavedMeal | null> {
+  try {
+    const result = await sql`
+      UPDATE saved_meals
+      SET name = ${meal.name}, description = ${meal.description},
+          calories = ${meal.macros.calories}, protein = ${meal.macros.protein},
+          carbs = ${meal.macros.carbs}, fat = ${meal.macros.fat}
+      WHERE id = ${mealId} AND user_id = ${userId}
+      RETURNING id, name, description, calories, protein, carbs, fat, created_at;
+    `;
+    if (result.rows.length === 0) return null;
+    return mapSavedMealRow(result.rows[0]);
+  } catch (error) {
+    console.error('Error updating saved meal:', error);
+    return null;
   }
 }
 
