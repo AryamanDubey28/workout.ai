@@ -1,13 +1,14 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Workout, Exercise, WorkoutPreset } from '@/types/workout';
+import { Workout, Exercise, WorkoutPreset, WorkoutType } from '@/types/workout';
+import { calculatePace, formatPace } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ExerciseRow } from './ExerciseRow';
 import { useExerciseCache } from '@/hooks/useExerciseCache';
 import { PresetPicker } from './PresetPicker';
-import { Plus, X, AlertTriangle, Calendar, BookTemplate } from 'lucide-react';
+import { Plus, X, AlertTriangle, Calendar, BookTemplate, Dumbbell, Footprints } from 'lucide-react';
 import {
   DndContext,
   closestCenter,
@@ -37,6 +38,14 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
   const [name, setName] = useState(workout?.name || initialPreset?.name || '');
   const [note, setNote] = useState(workout?.note || '');
   const [workoutDate, setWorkoutDate] = useState(workout?.date || new Date());
+  const [workoutType, setWorkoutType] = useState<WorkoutType>(workout?.type || 'strength');
+  const [distanceKm, setDistanceKm] = useState(workout?.runData?.distanceKm?.toString() || '');
+  const [durationMinutes, setDurationMinutes] = useState(
+    workout?.runData?.durationSeconds ? Math.floor(workout.runData.durationSeconds / 60).toString() : ''
+  );
+  const [durationSeconds, setDurationSeconds] = useState(
+    workout?.runData?.durationSeconds ? (workout.runData.durationSeconds % 60).toString() : ''
+  );
   const [showPresetPicker, setShowPresetPicker] = useState(false);
   const [availablePresets, setAvailablePresets] = useState<WorkoutPreset[]>([]);
   const [isLoadingPresets, setIsLoadingPresets] = useState(false);
@@ -56,14 +65,14 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
   const initialExercises = workout?.exercises || (initialPreset?.exercises.map(ex => ({
     ...ex,
     id: crypto.randomUUID(),
-  }))) || [
+  }))) || ((workout?.type || 'strength') === 'run' ? [] : [
     {
       id: crypto.randomUUID(),
       name: '',
       weight: '',
       useEffectiveReps: false,
     }
-  ];
+  ]);
   
   const [exercises, setExercises] = useState<Exercise[]>(initialExercises);
   const { invalidateCache } = useExerciseCache();
@@ -106,6 +115,10 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
       if (name !== (workout.name || '')) return true;
       if (note !== (workout.note || '')) return true;
       if (workoutDate.getTime() !== workout.date.getTime()) return true;
+      if (workoutType !== (workout.type || 'strength')) return true;
+      if (distanceKm !== (workout.runData?.distanceKm?.toString() || '')) return true;
+      if (durationMinutes !== (workout.runData?.durationSeconds ? Math.floor(workout.runData.durationSeconds / 60).toString() : '')) return true;
+      if (durationSeconds !== (workout.runData?.durationSeconds ? (workout.runData.durationSeconds % 60).toString() : '')) return true;
       if (exercises.length !== workout.exercises.length) return true;
       return exercises.some((exercise, index) => {
         const originalExercise = workout.exercises[index];
@@ -123,9 +136,11 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
         );
       });
     } else {
+      const hasRunContent = workoutType === 'run' && (distanceKm.trim() !== '' || durationMinutes.trim() !== '' || durationSeconds.trim() !== '');
       return (
         name.trim() !== '' ||
         note.trim() !== '' ||
+        hasRunContent ||
         exercises.some(exercise =>
           exercise.name.trim() !== '' ||
           exercise.weight.trim() !== '' ||
@@ -138,7 +153,7 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
         )
       );
     }
-  }, [exercises, name, note, workoutDate, workout]);
+  }, [exercises, name, note, workoutDate, workout, workoutType, distanceKm, durationMinutes, durationSeconds]);
 
   // Load draft on mount (if present). If editing, it will use the workout id key; if creating, uses "new" key.
   useEffect(() => {
@@ -154,6 +169,18 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
         }
         if (draft?.workoutDate) {
           setWorkoutDate(new Date(draft.workoutDate));
+        }
+        if (draft?.workoutType === 'run' || draft?.workoutType === 'strength') {
+          setWorkoutType(draft.workoutType);
+        }
+        if (typeof draft?.distanceKm === 'string') {
+          setDistanceKm(draft.distanceKm);
+        }
+        if (typeof draft?.durationMinutes === 'string') {
+          setDurationMinutes(draft.durationMinutes);
+        }
+        if (typeof draft?.durationSeconds === 'string') {
+          setDurationSeconds(draft.durationSeconds);
         }
         if (Array.isArray(draft?.exercises)) {
           setExercises(draft.exercises);
@@ -176,6 +203,10 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
           name,
           note,
           workoutDate: workoutDate.toISOString(),
+          workoutType,
+          distanceKm,
+          durationMinutes,
+          durationSeconds,
           exercises,
           updatedAt: new Date().toISOString(),
         };
@@ -195,7 +226,7 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
         clearTimeout(saveTimeoutRef.current);
       }
     };
-  }, [name, note, workoutDate, exercises, draftStorageKey]);
+  }, [name, note, workoutDate, workoutType, distanceKm, durationMinutes, durationSeconds, exercises, draftStorageKey]);
 
   // Flush draft when the page becomes hidden (backgrounded)
   useEffect(() => {
@@ -206,6 +237,10 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
             name,
             note,
             workoutDate: workoutDate.toISOString(),
+            workoutType,
+            distanceKm,
+            durationMinutes,
+            durationSeconds,
             exercises,
             updatedAt: new Date().toISOString(),
           };
@@ -216,10 +251,16 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
         // Also flush server autosave if editing (use keepalive fetch)
         if (workout?.id) {
           try {
+            const totalSec = (parseInt(durationMinutes) || 0) * 60 + (parseInt(durationSeconds) || 0);
             const payload = {
               name: name || workout.name || undefined,
               note: note.trim(),
-              date: workoutDate, // use the selected date
+              date: workoutDate,
+              type: workoutType,
+              runData: workoutType === 'run' ? {
+                distanceKm: parseFloat(distanceKm) || 0,
+                durationSeconds: totalSec,
+              } : undefined,
               exercises,
             };
             fetch(`/api/workouts/${workout.id}`, {
@@ -237,7 +278,7 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [name, note, workoutDate, exercises, draftStorageKey, workout?.id, workout?.name]);
+  }, [name, note, workoutDate, workoutType, distanceKm, durationMinutes, durationSeconds, exercises, draftStorageKey, workout?.id, workout?.name]);
 
   const clearDraft = () => {
     try {
@@ -257,10 +298,16 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
     const triggerServerSave = async () => {
       try {
         setIsSaving(true);
+        const totalSec = (parseInt(durationMinutes) || 0) * 60 + (parseInt(durationSeconds) || 0);
         const payload = {
           name: name || workout.name || undefined,
           note: note.trim(),
-          date: workoutDate, // use the selected date
+          date: workoutDate,
+          type: workoutType,
+          runData: workoutType === 'run' ? {
+            distanceKm: parseFloat(distanceKm) || 0,
+            durationSeconds: totalSec,
+          } : undefined,
           exercises,
         };
         await fetch(`/api/workouts/${workout.id}`, {
@@ -287,7 +334,7 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
         clearTimeout(serverSaveTimeoutRef.current);
       }
     };
-  }, [name, note, workoutDate, exercises, workout?.id, workout?.name, checkForUnsavedChanges]);
+  }, [name, note, workoutDate, workoutType, distanceKm, durationMinutes, durationSeconds, exercises, workout?.id, workout?.name, checkForUnsavedChanges]);
 
   useEffect(() => {
     setHasUnsavedChanges(checkForUnsavedChanges());
@@ -348,12 +395,19 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
         // Filter out empty exercises for saving
         const filteredExercises = exercises.filter(ex => ex.name.trim());
         
-        if (filteredExercises.length > 0 || name.trim() || note.trim()) {
+        const totalSec = (parseInt(durationMinutes) || 0) * 60 + (parseInt(durationSeconds) || 0);
+        const hasRunContent = workoutType === 'run' && (parseFloat(distanceKm) > 0 || totalSec > 0);
+        if (filteredExercises.length > 0 || name.trim() || note.trim() || hasRunContent) {
           const workoutToSave: Workout = {
             id: workout?.id || crypto.randomUUID(),
             name: name.trim() || undefined,
             note: note.trim(),
             date: workoutDate,
+            type: workoutType,
+            runData: workoutType === 'run' ? {
+              distanceKm: parseFloat(distanceKm) || 0,
+              durationSeconds: totalSec,
+            } : undefined,
             exercises: filteredExercises,
             createdAt: workout?.createdAt || new Date(),
             updatedAt: new Date(),
@@ -513,6 +567,44 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
                 rows={2}
                 className="mt-3 w-full resize-none rounded-lg border border-border/60 bg-background/60 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
               />
+              {/* Workout Type Toggle */}
+              <div className="flex gap-2 mt-3">
+                <Button
+                  type="button"
+                  variant={workoutType === 'strength' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => {
+                    setWorkoutType('strength');
+                    // Add a default exercise if switching to strength with none
+                    if (exercises.length === 0) {
+                      const newEx: Exercise = { id: crypto.randomUUID(), name: '', weight: '', useEffectiveReps: false };
+                      setExercises([newEx]);
+                      setExpandedExerciseId(newEx.id);
+                    }
+                  }}
+                  className="flex items-center gap-1.5"
+                >
+                  <Dumbbell className="h-3.5 w-3.5" />
+                  Strength
+                </Button>
+                <Button
+                  type="button"
+                  variant={workoutType === 'run' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => {
+                    setWorkoutType('run');
+                    // Clear default empty exercises when switching to run
+                    if (exercises.every(ex => !ex.name.trim())) {
+                      setExercises([]);
+                      setExpandedExerciseId(null);
+                    }
+                  }}
+                  className="flex items-center gap-1.5"
+                >
+                  <Footprints className="h-3.5 w-3.5" />
+                  Run
+                </Button>
+              </div>
             </div>
             <div className="flex gap-2 items-center">
               <div className="text-xs text-muted-foreground mr-2 flex items-center gap-1">
@@ -551,6 +643,65 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
         </CardHeader>
         
         <CardContent className="space-y-6">
+          {/* Run Data Section */}
+          {workoutType === 'run' && (
+            <div className="border rounded-lg p-4 bg-card/30 space-y-4">
+              <div className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                <Footprints className="h-4 w-4" />
+                Run Details
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="Distance"
+                    value={distanceKm}
+                    onChange={(e) => setDistanceKm(e.target.value)}
+                    className="w-full px-4 py-3 text-base border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-12"
+                  />
+                  <div className="text-xs text-muted-foreground mt-1.5 px-1">Distance (km)</div>
+                </div>
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <input
+                      type="number"
+                      min="0"
+                      placeholder="Min"
+                      value={durationMinutes}
+                      onChange={(e) => setDurationMinutes(e.target.value)}
+                      className="w-full px-4 py-3 text-base border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-12"
+                    />
+                    <div className="text-xs text-muted-foreground mt-1.5 px-1">Min</div>
+                  </div>
+                  <div className="flex-1">
+                    <input
+                      type="number"
+                      min="0"
+                      max="59"
+                      placeholder="Sec"
+                      value={durationSeconds}
+                      onChange={(e) => setDurationSeconds(e.target.value)}
+                      className="w-full px-4 py-3 text-base border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-12"
+                    />
+                    <div className="text-xs text-muted-foreground mt-1.5 px-1">Sec</div>
+                  </div>
+                </div>
+              </div>
+              {(() => {
+                const parsedDist = parseFloat(distanceKm);
+                const parsedSec = (parseInt(durationMinutes) || 0) * 60 + (parseInt(durationSeconds) || 0);
+                const pace = calculatePace(parsedDist, parsedSec);
+                return pace ? (
+                  <div className="text-sm text-primary font-medium">
+                    Pace: {formatPace(pace)}
+                  </div>
+                ) : null;
+              })()}
+            </div>
+          )}
+
           {/* Header Row - Only for very large screens */}
           <div className="hidden 2xl:grid grid-cols-12 gap-3 text-sm font-medium text-muted-foreground px-4 pb-2 border-b">
             <div className="col-span-5">Exercise</div>
@@ -608,7 +759,7 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
               className="w-full border-dashed py-6 text-base hover:bg-primary/5 hover:border-primary/30 hover:text-primary transition-all duration-200 interactive-scale group"
             >
               <Plus className="h-5 w-5 mr-2 transition-transform duration-200 group-hover:rotate-90" />
-              Add Exercise
+              {workoutType === 'run' && exercises.length === 0 ? 'Add Strength Exercises (Optional)' : 'Add Exercise'}
             </Button>
             {exercises.length > 1 && (
               <p className="text-xs text-muted-foreground mt-2">

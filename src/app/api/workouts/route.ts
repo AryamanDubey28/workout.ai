@@ -47,14 +47,21 @@ export async function POST(request: NextRequest) {
     const body: Workout = await request.json();
 
     // Validate required fields
-    if (!body.id || !body.date || !body.exercises) {
+    if (!body.id || !body.date || !Array.isArray(body.exercises)) {
       return NextResponse.json(
         { error: 'Missing required fields: id, date, exercises' },
         { status: 400 }
       );
     }
 
-    // Convert date string to Date object if needed
+    // Validate run data if type is 'run'
+    if (body.type === 'run' && (!body.runData || typeof body.runData.distanceKm !== 'number' || typeof body.runData.durationSeconds !== 'number')) {
+      return NextResponse.json(
+        { error: 'Run workouts require runData with distanceKm and durationSeconds' },
+        { status: 400 }
+      );
+    }
+
     const workoutName = typeof body.name === 'string' ? body.name.trim() : '';
     const workoutNote = typeof body.note === 'string' ? body.note.trim() : '';
 
@@ -62,6 +69,8 @@ export async function POST(request: NextRequest) {
       ...body,
       name: workoutName || undefined,
       note: workoutNote || undefined,
+      type: body.type || 'strength',
+      runData: body.runData || undefined,
       date: new Date(body.date),
       createdAt: new Date(body.createdAt),
       updatedAt: new Date(body.updatedAt),
