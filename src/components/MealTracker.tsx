@@ -73,11 +73,20 @@ export function MealTracker() {
   const [isLoadingSavedMeals, setIsLoadingSavedMeals] = useState(false);
 
   const loadGoal = useCallback(async () => {
+    // Show cached goal instantly
+    try {
+      const cached = localStorage.getItem('workout-ai-macro-goal');
+      if (cached) setGoal(JSON.parse(cached));
+    } catch {}
+
     try {
       const res = await fetch('/api/goals');
       if (res.ok) {
         const data = await res.json();
-        if (data.goal) setGoal(data.goal);
+        if (data.goal) {
+          setGoal(data.goal);
+          try { localStorage.setItem('workout-ai-macro-goal', JSON.stringify(data.goal)); } catch {}
+        }
       }
     } catch (err) {
       console.error('Failed to load goal:', err);
@@ -116,12 +125,25 @@ export function MealTracker() {
   }, [loadMeals]);
 
   const loadSavedMeals = useCallback(async () => {
-    setIsLoadingSavedMeals(true);
+    // Show cached data instantly
+    try {
+      const cached = localStorage.getItem('workout-ai-saved-meals');
+      if (cached) {
+        setSavedMeals(JSON.parse(cached));
+      } else {
+        setIsLoadingSavedMeals(true);
+      }
+    } catch {
+      setIsLoadingSavedMeals(true);
+    }
+
+    // Fetch fresh
     try {
       const res = await fetch('/api/meals/saved');
       if (res.ok) {
         const data = await res.json();
         setSavedMeals(data.savedMeals);
+        try { localStorage.setItem('workout-ai-saved-meals', JSON.stringify(data.savedMeals)); } catch {}
       }
     } catch (err) {
       console.error('Failed to load saved meals:', err);
@@ -139,11 +161,17 @@ export function MealTracker() {
     await handleConfirmMeal(meal.description, meal.macros, category);
   };
 
+  const updateSavedMealsCache = (meals: SavedMeal[]) => {
+    try { localStorage.setItem('workout-ai-saved-meals', JSON.stringify(meals)); } catch {}
+  };
+
   const handleDeleteSavedMeal = async (id: string) => {
     try {
       const res = await fetch(`/api/meals/saved/${id}`, { method: 'DELETE' });
       if (res.ok) {
-        setSavedMeals((prev) => prev.filter((m) => m.id !== id));
+        const updated = savedMeals.filter((m) => m.id !== id);
+        setSavedMeals(updated);
+        updateSavedMealsCache(updated);
       }
     } catch (err) {
       console.error('Failed to delete saved meal:', err);
@@ -151,11 +179,15 @@ export function MealTracker() {
   };
 
   const handleUpdateSavedMeal = (meal: SavedMeal) => {
-    setSavedMeals((prev) => prev.map((m) => (m.id === meal.id ? meal : m)));
+    const updated = savedMeals.map((m) => (m.id === meal.id ? meal : m));
+    setSavedMeals(updated);
+    updateSavedMealsCache(updated);
   };
 
   const handleAddSavedMeal = (meal: SavedMeal) => {
-    setSavedMeals((prev) => [...prev, meal]);
+    const updated = [...savedMeals, meal];
+    setSavedMeals(updated);
+    updateSavedMealsCache(updated);
   };
 
   const handlePrevDay = () => {

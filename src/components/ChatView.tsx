@@ -66,6 +66,32 @@ export function ChatView() {
   // Load conversations on mount
   useEffect(() => {
     async function loadConversations() {
+      // Show cached data instantly while fetching fresh
+      try {
+        const cached = localStorage.getItem('workout-ai-conversations');
+        if (cached) {
+          const rawConvs = JSON.parse(cached);
+          const convs = rawConvs.map((c: any) => ({
+            ...c,
+            created_at: new Date(c.created_at),
+            updated_at: new Date(c.updated_at),
+          }));
+          setConversations(convs);
+          if (convs.length > 0) {
+            const mostRecent = convs[0];
+            setActiveConversationId(mostRecent.id);
+            const cachedMsgs = localStorage.getItem(`workout-ai-chat-msgs-${mostRecent.id}`);
+            if (cachedMsgs) {
+              setMessages(JSON.parse(cachedMsgs).map((m: any) => ({
+                ...m, createdAt: new Date(m.createdAt),
+              })));
+            }
+          }
+          setIsLoadingHistory(false);
+        }
+      } catch {}
+
+      // Fetch fresh from server
       try {
         const res = await fetch('/api/chat/conversations');
         if (res.ok) {
@@ -76,8 +102,8 @@ export function ChatView() {
             updated_at: new Date(c.updated_at),
           }));
           setConversations(convs);
+          try { localStorage.setItem('workout-ai-conversations', JSON.stringify(data.conversations || [])); } catch {}
 
-          // Load most recent conversation's messages
           if (convs.length > 0) {
             const mostRecent = convs[0];
             setActiveConversationId(mostRecent.id);
@@ -94,18 +120,29 @@ export function ChatView() {
   }, []);
 
   const loadMessages = async (conversationId: string) => {
+    // Show cached messages instantly
+    try {
+      const cached = localStorage.getItem(`workout-ai-chat-msgs-${conversationId}`);
+      if (cached) {
+        setMessages(JSON.parse(cached).map((m: any) => ({
+          ...m, createdAt: new Date(m.createdAt),
+        })));
+      }
+    } catch {}
+
+    // Fetch fresh
     try {
       const res = await fetch(`/api/chat?conversationId=${conversationId}`);
       if (res.ok) {
         const data = await res.json();
-        setMessages(
-          (data.messages || []).map((m: any) => ({
-            id: m.id,
-            role: m.role,
-            content: m.content,
-            createdAt: new Date(m.created_at),
-          }))
-        );
+        const msgs = (data.messages || []).map((m: any) => ({
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          createdAt: new Date(m.created_at),
+        }));
+        setMessages(msgs);
+        try { localStorage.setItem(`workout-ai-chat-msgs-${conversationId}`, JSON.stringify(msgs)); } catch {}
       }
     } catch (err) {
       console.error('Failed to load messages:', err);
@@ -124,6 +161,7 @@ export function ChatView() {
             updated_at: new Date(c.updated_at),
           }))
         );
+        try { localStorage.setItem('workout-ai-conversations', JSON.stringify(data.conversations || [])); } catch {}
       }
     } catch (err) {
       console.error('Failed to refresh conversations:', err);
@@ -161,7 +199,13 @@ export function ChatView() {
       return;
     }
     setActiveConversationId(conv.id);
-    setMessages([]);
+    // Show cached messages instantly, or clear if no cache
+    try {
+      const cached = localStorage.getItem(`workout-ai-chat-msgs-${conv.id}`);
+      setMessages(cached ? JSON.parse(cached).map((m: any) => ({ ...m, createdAt: new Date(m.createdAt) })) : []);
+    } catch {
+      setMessages([]);
+    }
     setError(null);
     setShowSidebar(false);
     await loadMessages(conv.id);
@@ -286,6 +330,12 @@ export function ChatView() {
           )
         );
       }
+
+      // Cache messages after streaming
+      setMessages(prev => {
+        try { localStorage.setItem(`workout-ai-chat-msgs-${convId}`, JSON.stringify(prev)); } catch {}
+        return prev;
+      });
 
       // Refresh conversations to pick up auto-generated title
       refreshConversations();

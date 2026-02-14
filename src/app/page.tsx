@@ -96,6 +96,7 @@ export default function Home() {
           updatedAt: new Date(workout.updatedAt),
         }));
         setWorkouts(workoutsWithDates);
+        try { localStorage.setItem('workout-ai-workouts', JSON.stringify(data.workouts)); } catch {}
       } else {
         console.error('Failed to load workouts');
       }
@@ -110,6 +111,7 @@ export default function Home() {
       if (response.ok) {
         const data = await response.json();
         setSplitReminder(data);
+        try { localStorage.setItem('workout-ai-split-reminder', JSON.stringify(data)); } catch {}
       }
     } catch (error) {
       console.error('Error loading split reminder:', error);
@@ -117,14 +119,41 @@ export default function Home() {
   }, []);
 
   const checkAuth = useCallback(async () => {
+    // Show cached data instantly to skip loading spinner
+    try {
+      const cachedUser = localStorage.getItem('workout-ai-user');
+      if (cachedUser) {
+        setUser(JSON.parse(cachedUser));
+        const cachedWorkouts = localStorage.getItem('workout-ai-workouts');
+        if (cachedWorkouts) {
+          setWorkouts(JSON.parse(cachedWorkouts).map((w: any) => ({
+            ...w,
+            date: new Date(w.date),
+            createdAt: new Date(w.createdAt),
+            updatedAt: new Date(w.updatedAt),
+          })));
+        }
+        const cachedSplit = localStorage.getItem('workout-ai-split-reminder');
+        if (cachedSplit) setSplitReminder(JSON.parse(cachedSplit));
+        setIsLoading(false);
+      }
+    } catch {}
+
+    // Validate session and fetch fresh data
     try {
       const response = await fetch('/api/auth/me');
       if (response.ok) {
         const data = await response.json();
         setUser(data.user);
-        // Load workouts and split reminder after successful authentication
+        try { localStorage.setItem('workout-ai-user', JSON.stringify(data.user)); } catch {}
         await loadWorkouts();
         loadSplitReminder();
+      } else {
+        // Session expired — clear cache and show login
+        setUser(null);
+        try {
+          Object.keys(localStorage).filter(k => k.startsWith('workout-ai-')).forEach(k => localStorage.removeItem(k));
+        } catch {}
       }
     } catch (error) {
       console.error('Auth check failed:', error);
@@ -149,6 +178,10 @@ export default function Home() {
     setShowPresetManager(false);
     setSplitReminder(null);
     setInitialPreset(null);
+    // Clear all caches (user-specific data)
+    try {
+      Object.keys(localStorage).filter(k => k.startsWith('workout-ai-')).forEach(k => localStorage.removeItem(k));
+    } catch {}
   };
 
   const handleSaveWorkout = async (workout: Workout) => {
