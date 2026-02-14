@@ -16,6 +16,7 @@ import { PresetManager } from "@/components/PresetManager";
 import { SplitReminderBanner } from "@/components/SplitReminderBanner";
 import { Workout, WorkoutPreset, SplitReminder } from "@/types/workout";
 import { User as UserType } from "@/types/user";
+import { useScrollDirection } from "@/hooks/useScrollDirection";
 
 export default function Home() {
   const [user, setUser] = useState<UserType | null>(null);
@@ -95,6 +96,7 @@ export default function Home() {
           updatedAt: new Date(workout.updatedAt),
         }));
         setWorkouts(workoutsWithDates);
+        try { localStorage.setItem('workout-ai-workouts', JSON.stringify(data.workouts)); } catch {}
       } else {
         console.error('Failed to load workouts');
       }
@@ -109,6 +111,7 @@ export default function Home() {
       if (response.ok) {
         const data = await response.json();
         setSplitReminder(data);
+        try { localStorage.setItem('workout-ai-split-reminder', JSON.stringify(data)); } catch {}
       }
     } catch (error) {
       console.error('Error loading split reminder:', error);
@@ -116,14 +119,41 @@ export default function Home() {
   }, []);
 
   const checkAuth = useCallback(async () => {
+    // Show cached data instantly to skip loading spinner
+    try {
+      const cachedUser = localStorage.getItem('workout-ai-user');
+      if (cachedUser) {
+        setUser(JSON.parse(cachedUser));
+        const cachedWorkouts = localStorage.getItem('workout-ai-workouts');
+        if (cachedWorkouts) {
+          setWorkouts(JSON.parse(cachedWorkouts).map((w: any) => ({
+            ...w,
+            date: new Date(w.date),
+            createdAt: new Date(w.createdAt),
+            updatedAt: new Date(w.updatedAt),
+          })));
+        }
+        const cachedSplit = localStorage.getItem('workout-ai-split-reminder');
+        if (cachedSplit) setSplitReminder(JSON.parse(cachedSplit));
+        setIsLoading(false);
+      }
+    } catch {}
+
+    // Validate session and fetch fresh data
     try {
       const response = await fetch('/api/auth/me');
       if (response.ok) {
         const data = await response.json();
         setUser(data.user);
-        // Load workouts and split reminder after successful authentication
+        try { localStorage.setItem('workout-ai-user', JSON.stringify(data.user)); } catch {}
         await loadWorkouts();
         loadSplitReminder();
+      } else {
+        // Session expired — clear cache and show login
+        setUser(null);
+        try {
+          Object.keys(localStorage).filter(k => k.startsWith('workout-ai-')).forEach(k => localStorage.removeItem(k));
+        } catch {}
       }
     } catch (error) {
       console.error('Auth check failed:', error);
@@ -148,6 +178,10 @@ export default function Home() {
     setShowPresetManager(false);
     setSplitReminder(null);
     setInitialPreset(null);
+    // Clear all caches (user-specific data)
+    try {
+      Object.keys(localStorage).filter(k => k.startsWith('workout-ai-')).forEach(k => localStorage.removeItem(k));
+    } catch {}
   };
 
   const handleSaveWorkout = async (workout: Workout) => {
@@ -290,6 +324,8 @@ export default function Home() {
   };
 
   const isFormOpen = isCreating || editingWorkout;
+  const shouldAutoHide = activeTab !== 'chat' && !isFormOpen && !showProfile && !showPresetManager;
+  const { barsHidden } = useScrollDirection({ enabled: shouldAutoHide });
 
   // Show loading spinner
   if (isLoading) {
@@ -360,30 +396,34 @@ export default function Home() {
 
   return (
     <div className={`bg-background animate-fade-in-blur flex flex-col ${activeTab === 'chat' ? 'h-[100dvh] overflow-hidden' : 'min-h-screen'}`}>
-      {/* Header */}
-      <header className="border-b animate-slide-down shrink-0">
-        <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <div className="flex items-center space-x-2">
-            <Dumbbell className="h-8 w-8 text-primary" />
-            <h1 className="text-2xl font-bold">Workout AI</h1>
+      {/* Header — only shown on workouts tab */}
+      {activeTab === 'workouts' && (
+        <header className={`border-b animate-slide-down shrink-0 sticky top-0 z-40 bg-background/80 backdrop-blur-lg transition-transform duration-300 ease-in-out ${
+          barsHidden ? '-translate-y-full' : 'translate-y-0'
+        }`}>
+          <div className="container mx-auto px-4 py-4 flex justify-between items-center">
+            <div className="flex items-center space-x-2">
+              <Dumbbell className="h-8 w-8 text-primary" />
+              <h1 className="text-2xl font-bold">Workout AI</h1>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowProfile(true)}
+                className="flex items-center gap-2 interactive-scale"
+              >
+                <User className="h-4 w-4" />
+                {user.name}
+              </Button>
+              <ThemeToggle />
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowProfile(true)}
-              className="flex items-center gap-2 interactive-scale"
-            >
-              <User className="h-4 w-4" />
-              {user.name}
-            </Button>
-            <ThemeToggle />
-          </div>
-        </div>
-      </header>
+        </header>
+      )}
 
       {/* Main Content */}
-      <main className={`flex-1 container mx-auto px-4 max-w-6xl ${activeTab === 'chat' ? 'flex flex-col pb-28 min-h-0' : 'py-6 sm:py-8 pb-24'}`}>
+      <main className={`flex-1 container mx-auto px-4 max-w-6xl ${activeTab === 'chat' ? 'flex flex-col pb-20 min-h-0' : 'py-6 sm:py-8 pb-24'}`}>
         {/* Workouts Tab */}
         {activeTab === 'workouts' && (
           <>
@@ -478,7 +518,7 @@ export default function Home() {
       />
 
       {/* Bottom Navigation */}
-      <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />
+      <BottomNav activeTab={activeTab} onTabChange={setActiveTab} hidden={barsHidden} />
     </div>
   );
 }

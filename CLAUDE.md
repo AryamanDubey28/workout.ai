@@ -33,7 +33,7 @@ All protected routes follow: `getSessionFromCookie()` → `initDatabase()` → d
 - **Exercises:** `exercises/all`, `exercises/track`, `exercises/seed`
 - **Presets:** `presets/` (GET, POST), `presets/[id]/` (PUT, DELETE), `presets/reorder` (PUT)
 - **Split:** `split/next` — returns next preset in rotation
-- **Meals:** `meals/` (GET, POST), `meals/[id]/` (DELETE), `meals/analyze` (POST — OpenAI vision), `meals/analyze/refine` (POST)
+- **Meals:** `meals/` (GET, POST), `meals/[id]/` (DELETE), `meals/analyze` (POST — OpenAI vision), `meals/analyze/refine` (POST), `meals/saved/` (GET, POST — Food Bank), `meals/saved/[id]/` (DELETE)
 - **Goals:** `goals/` (GET, PUT) — macro goals
 - **Chat:** `chat/` (GET, POST streaming, DELETE), `chat/conversations/` (GET, POST), `chat/conversations/[id]/` (DELETE, PATCH)
 
@@ -64,7 +64,7 @@ Uses the `openai` npm package. Two AI features:
 
 ### Tabs / Navigation
 
-Bottom navigation (`BottomNav.tsx`) switches between tabs: `workouts`, `meals`, `chat`, `profile`. The active tab state lives in `page.tsx`.
+Bottom navigation (`BottomNav.tsx`) switches between tabs: `workouts`, `meals`, `chat`. Profile is accessed via a header button, not a tab. The active tab state lives in `page.tsx`.
 
 ### Auth
 
