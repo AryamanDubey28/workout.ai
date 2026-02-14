@@ -1,12 +1,13 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { ChevronLeft, ChevronRight, Loader2, UtensilsCrossed, Plus, Camera, Sparkles, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Loader2, UtensilsCrossed, Plus, Camera, Sparkles, X, Bookmark } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { MealCard } from '@/components/MealCard';
 import { MealReviewModal } from '@/components/MealReviewModal';
-import { Meal, Macros, MealItem, MacroGoal, MealCategory, MEAL_CATEGORIES } from '@/types/meal';
+import { Meal, Macros, MealItem, MacroGoal, MealCategory, MEAL_CATEGORIES, SavedMeal } from '@/types/meal';
+import { FoodBankPicker } from '@/components/FoodBankPicker';
 
 function formatDateKey(date: Date): string {
   return date.toISOString().split('T')[0];
@@ -66,6 +67,11 @@ export function MealTracker() {
     context?: string;
   } | null>(null);
 
+  // Food bank state
+  const [savedMeals, setSavedMeals] = useState<SavedMeal[]>([]);
+  const [isFoodBankOpen, setIsFoodBankOpen] = useState(false);
+  const [isLoadingSavedMeals, setIsLoadingSavedMeals] = useState(false);
+
   const loadGoal = useCallback(async () => {
     try {
       const res = await fetch('/api/goals');
@@ -108,6 +114,49 @@ export function MealTracker() {
   useEffect(() => {
     loadMeals();
   }, [loadMeals]);
+
+  const loadSavedMeals = useCallback(async () => {
+    setIsLoadingSavedMeals(true);
+    try {
+      const res = await fetch('/api/meals/saved');
+      if (res.ok) {
+        const data = await res.json();
+        setSavedMeals(data.savedMeals);
+      }
+    } catch (err) {
+      console.error('Failed to load saved meals:', err);
+    } finally {
+      setIsLoadingSavedMeals(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadSavedMeals();
+  }, [loadSavedMeals]);
+
+  const handleSelectFromBank = async (meal: SavedMeal, category: MealCategory) => {
+    setIsFoodBankOpen(false);
+    await handleConfirmMeal(meal.description, meal.macros, category);
+  };
+
+  const handleDeleteSavedMeal = async (id: string) => {
+    try {
+      const res = await fetch(`/api/meals/saved/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        setSavedMeals((prev) => prev.filter((m) => m.id !== id));
+      }
+    } catch (err) {
+      console.error('Failed to delete saved meal:', err);
+    }
+  };
+
+  const handleUpdateSavedMeal = (meal: SavedMeal) => {
+    setSavedMeals((prev) => prev.map((m) => (m.id === meal.id ? meal : m)));
+  };
+
+  const handleAddSavedMeal = (meal: SavedMeal) => {
+    setSavedMeals((prev) => [...prev, meal]);
+  };
 
   const handlePrevDay = () => {
     setSelectedDate((d) => {
@@ -437,6 +486,25 @@ export function MealTracker() {
         </CardContent>
       </Card>
 
+      {/* Food Bank */}
+      <Button
+        variant="outline"
+        onClick={() => {
+          loadSavedMeals();
+          setIsFoodBankOpen(true);
+        }}
+        disabled={isAnalyzing || isSavingMeal}
+        className="w-full mb-6 h-11 interactive-scale animate-slide-up animation-delay-150"
+      >
+        <Bookmark className="h-4 w-4 mr-2" />
+        Food Bank
+        {savedMeals.length > 0 && (
+          <span className="ml-2 text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">
+            {savedMeals.length}
+          </span>
+        )}
+      </Button>
+
       {/* Error Message */}
       {error && (
         <div className="mb-4 p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-sm text-destructive animate-slide-up">
@@ -524,6 +592,18 @@ export function MealTracker() {
           onCancel={() => setReviewData(null)}
         />
       )}
+
+      {/* Food Bank Picker */}
+      <FoodBankPicker
+        savedMeals={savedMeals}
+        isLoading={isLoadingSavedMeals}
+        isOpen={isFoodBankOpen}
+        onSelect={handleSelectFromBank}
+        onDelete={handleDeleteSavedMeal}
+        onUpdate={handleUpdateSavedMeal}
+        onAdd={handleAddSavedMeal}
+        onClose={() => setIsFoodBankOpen(false)}
+      />
     </div>
   );
 }

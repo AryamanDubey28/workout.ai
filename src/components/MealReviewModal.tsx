@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Macros, MealItem, MealCategory, MEAL_CATEGORIES } from '@/types/meal';
-import { X, Loader2, Send, Sparkles, Pencil, Save, ChevronDown } from 'lucide-react';
+import { X, Loader2, Send, Sparkles, Pencil, Save, ChevronDown, Bookmark, Check } from 'lucide-react';
 
 interface RefinementMessage {
   role: 'user' | 'assistant';
@@ -44,6 +44,10 @@ export function MealReviewModal({
   const [isEditingMacros, setIsEditingMacros] = useState(false);
   const [showItems, setShowItems] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showFoodBankInput, setShowFoodBankInput] = useState(false);
+  const [foodBankName, setFoodBankName] = useState('');
+  const [isSavingToBank, setIsSavingToBank] = useState(false);
+  const [savedToBank, setSavedToBank] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -99,6 +103,39 @@ export function MealReviewModal({
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleRefine();
+    }
+  };
+
+  const handleSaveToBank = async () => {
+    const name = foodBankName.trim();
+    if (!name) return;
+
+    setIsSavingToBank(true);
+    setError(null);
+
+    try {
+      const res = await fetch('/api/meals/saved', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: crypto.randomUUID(),
+          name,
+          description,
+          macros,
+        }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        throw new Error(errData?.error || 'Failed to save to Food Bank');
+      }
+
+      setSavedToBank(true);
+      setShowFoodBankInput(false);
+    } catch (err: any) {
+      setError(err.message || 'Failed to save to Food Bank');
+    } finally {
+      setIsSavingToBank(false);
     }
   };
 
@@ -329,17 +366,59 @@ export function MealReviewModal({
             </Button>
           </div>
 
-          <p className="text-[11px] text-muted-foreground text-center">
-            This meal is not saved yet. Tap Save Meal to log it.
-          </p>
+          {/* Save to Food Bank */}
+          {savedToBank ? (
+            <div className="flex items-center justify-center gap-1.5 text-xs text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 rounded-lg p-2.5">
+              <Check className="h-3.5 w-3.5" />
+              Saved to Food Bank
+            </div>
+          ) : showFoodBankInput ? (
+            <div className="flex gap-2">
+              <Input
+                value={foodBankName}
+                onChange={(e) => setFoodBankName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleSaveToBank();
+                  if (e.key === 'Escape') setShowFoodBankInput(false);
+                }}
+                placeholder="Name this meal, e.g. Protein Shake"
+                className="text-sm"
+                autoFocus
+                disabled={isSavingToBank}
+              />
+              <Button
+                size="sm"
+                onClick={handleSaveToBank}
+                disabled={!foodBankName.trim() || isSavingToBank}
+                className="shrink-0"
+              >
+                {isSavingToBank ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Check className="h-4 w-4" />
+                )}
+              </Button>
+            </div>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowFoodBankInput(true)}
+              disabled={isRefining || isSaving}
+              className="w-full text-xs"
+            >
+              <Bookmark className="h-3.5 w-3.5 mr-1.5" />
+              Save to Food Bank
+            </Button>
+          )}
 
           <div className="grid grid-cols-2 gap-2">
-            <Button variant="outline" onClick={onCancel} disabled={isRefining || isSaving}>
+            <Button variant="outline" onClick={onCancel} disabled={isRefining || isSaving || isSavingToBank}>
               Cancel
             </Button>
             <Button
               onClick={() => onConfirm(description, macros, category)}
-              disabled={isRefining || isSaving}
+              disabled={isRefining || isSaving || isSavingToBank}
               className="interactive-scale"
             >
               {isSaving ? (
