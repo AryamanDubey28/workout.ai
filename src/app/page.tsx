@@ -423,7 +423,7 @@ export default function Home() {
       )}
 
       {/* Main Content */}
-      <main className={`flex-1 container mx-auto px-4 max-w-6xl ${activeTab === 'chat' ? 'flex flex-col pb-20 min-h-0' : 'py-6 sm:py-8 pb-24'}`}>
+      <main className={`flex-1 container mx-auto px-4 max-w-6xl ${activeTab === 'chat' ? 'flex flex-col pb-[calc(5rem+env(safe-area-inset-bottom))] min-h-0' : 'py-6 sm:py-8 pb-24'}`}>
         {/* Workouts Tab */}
         {activeTab === 'workouts' && (
           <>
