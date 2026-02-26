@@ -7,7 +7,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { RotateCcw } from 'lucide-react';
 
 interface CalendarLegendProps {
-  uniqueNames: string[];
+  categories: string[];
   getColor: (name: string) => PaletteEntry;
   overrides: Record<string, number>;
   onSetColor: (name: string, paletteIndex: number) => void;
@@ -17,7 +17,7 @@ interface CalendarLegendProps {
 }
 
 export function CalendarLegend({
-  uniqueNames,
+  categories,
   getColor,
   overrides,
   onSetColor,
@@ -34,13 +34,13 @@ export function CalendarLegend({
         </SheetHeader>
 
         <ScrollArea className="flex-1 px-4 pb-6">
-          {uniqueNames.length === 0 ? (
+          {categories.length === 0 ? (
             <div className="text-center py-8">
               <p className="text-sm text-muted-foreground">No workouts logged yet</p>
             </div>
           ) : (
             <div className="space-y-3 stagger-children">
-              {uniqueNames.map((name) => {
+              {categories.map((name) => {
                 const color = getColor(name);
                 const hasOverride = overrides[name] !== undefined;
 

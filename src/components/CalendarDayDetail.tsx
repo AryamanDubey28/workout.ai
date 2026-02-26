@@ -7,7 +7,7 @@ import { calculatePace, formatPace, formatDuration, formatDistance } from '@/lib
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
-import { Moon, Footprints } from 'lucide-react';
+import { Moon, CalendarClock, Footprints } from 'lucide-react';
 
 interface CalendarDayDetailProps {
   date: Date | null;
@@ -15,6 +15,14 @@ interface CalendarDayDetailProps {
   getColor: (name: string) => PaletteEntry;
   open: boolean;
   onClose: () => void;
+}
+
+function isFutureDate(date: Date): boolean {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d > today;
 }
 
 function formatExercise(exercise: any): string {
@@ -75,20 +83,34 @@ export function CalendarDayDetail({
             })}
           </SheetTitle>
           <SheetDescription>
-            {workouts.length === 0
-              ? 'Rest Day'
-              : `${workouts.length} workout${workouts.length !== 1 ? 's' : ''}`}
+            {workouts.length > 0
+              ? `${workouts.length} workout${workouts.length !== 1 ? 's' : ''}`
+              : date && isFutureDate(date)
+                ? 'Upcoming'
+                : 'Rest Day'}
           </SheetDescription>
         </SheetHeader>
 
         <ScrollArea className="flex-1 px-4 pb-6">
           {workouts.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
-              <div className="w-14 h-14 bg-muted/50 rounded-2xl flex items-center justify-center mb-3">
-                <Moon className="h-7 w-7 text-muted-foreground/60" />
-              </div>
-              <p className="text-sm font-medium">Rest Day</p>
-              <p className="text-xs text-muted-foreground/70 mt-1">No workouts logged</p>
+              {date && isFutureDate(date) ? (
+                <>
+                  <div className="w-14 h-14 bg-muted/50 rounded-2xl flex items-center justify-center mb-3">
+                    <CalendarClock className="h-7 w-7 text-muted-foreground/60" />
+                  </div>
+                  <p className="text-sm font-medium">Not Logged Yet</p>
+                  <p className="text-xs text-muted-foreground/70 mt-1">This day hasn&apos;t happened yet</p>
+                </>
+              ) : (
+                <>
+                  <div className="w-14 h-14 bg-muted/50 rounded-2xl flex items-center justify-center mb-3">
+                    <Moon className="h-7 w-7 text-muted-foreground/60" />
+                  </div>
+                  <p className="text-sm font-medium">Rest Day</p>
+                  <p className="text-xs text-muted-foreground/70 mt-1">No workouts logged</p>
+                </>
+              )}
             </div>
           ) : (
             <div className="space-y-3 stagger-children">
