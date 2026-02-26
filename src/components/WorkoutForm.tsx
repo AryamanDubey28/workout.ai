@@ -38,6 +38,7 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
   const [name, setName] = useState(workout?.name || initialPreset?.name || '');
   const [note, setNote] = useState(workout?.note || '');
   const [showNote, setShowNote] = useState(!!(workout?.note));
+  const [noteJustActivated, setNoteJustActivated] = useState(false);
   const [workoutDate, setWorkoutDate] = useState(workout?.date || new Date());
   const [workoutType, setWorkoutType] = useState<WorkoutType>(workout?.type || initialPreset?.type || 'strength');
   const [distanceKm, setDistanceKm] = useState(
@@ -404,8 +405,8 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
   };
 
   return (
-    <Drawer open={true} onOpenChange={(open) => { if (!open) handleClose(); }} handleOnly>
-      <DrawerContent className="h-[95dvh] data-[vaul-drawer-direction=bottom]:max-h-[95dvh]">
+    <Drawer open={true} onOpenChange={(open) => { if (!open) handleClose(); }} snapPoints={[0.95]} fadeFromIndex={0}>
+      <DrawerContent className="data-[vaul-drawer-direction=bottom]:max-h-none">
         <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
         {/* Header */}
         <div className="shrink-0 border-b px-4 pb-3 pt-2">
@@ -463,7 +464,7 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
             {/* Note toggle */}
             {!showNote && (
               <button
-                onClick={() => setShowNote(true)}
+                onClick={() => { setShowNote(true); setNoteJustActivated(true); }}
                 className="text-xs px-2.5 py-1 rounded-full bg-muted hover:bg-muted/80 text-muted-foreground flex items-center gap-1 transition-colors"
               >
                 <StickyNote className="h-3 w-3" />
@@ -497,7 +498,8 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
               onChange={(e) => setNote(e.target.value)}
               rows={2}
               className="mt-2 w-full resize-none rounded-lg border border-border/40 bg-muted/30 px-3 py-2 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
-              autoFocus
+              autoFocus={noteJustActivated}
+              onFocus={() => setNoteJustActivated(false)}
             />
           )}
         </div>
@@ -597,7 +599,6 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
           )}
         </div>
 
-        {/* Bottom action bar */}
         {/* Bottom action bar */}
         <div className="shrink-0 border-t bg-background px-4 py-3 flex items-center gap-2 safe-area-bottom">
           <Button variant="outline" onClick={addExercise} className="flex-1 h-10">
