@@ -3,7 +3,7 @@
 import { WorkoutPreset } from '@/types/workout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { X, Dumbbell, Loader2 } from 'lucide-react';
+import { X, Dumbbell, Footprints, Loader2 } from 'lucide-react';
 
 interface PresetPickerProps {
   presets: WorkoutPreset[];
@@ -47,6 +47,7 @@ export function PresetPicker({ presets, isLoading, isOpen, onSelect, onClose }: 
             </p>
           ) : (
             presets.map((preset) => {
+              const isRun = preset.type === 'run';
               const exerciseNames = preset.exercises
                 .map((e) => e.name)
                 .filter(Boolean)
@@ -57,13 +58,23 @@ export function PresetPicker({ presets, isLoading, isOpen, onSelect, onClose }: 
                   onClick={() => onSelect(preset)}
                   className="w-full text-left p-3 rounded-lg border border-border/50 hover:border-primary/30 hover:bg-primary/5 transition-all duration-200 group"
                 >
-                  <div className="font-medium group-hover:text-primary transition-colors">
+                  <div className="font-medium group-hover:text-primary transition-colors flex items-center gap-1.5">
+                    {isRun ? <Footprints className="h-3.5 w-3.5 text-primary shrink-0" /> : <Dumbbell className="h-3.5 w-3.5 text-primary shrink-0" />}
                     {preset.name}
                   </div>
                   <div className="text-xs text-muted-foreground mt-0.5">
-                    {preset.exercises.length} exercise{preset.exercises.length !== 1 ? 's' : ''}
-                    {exerciseNames.length > 0 && (
-                      <span> — {exerciseNames.join(', ')}{preset.exercises.length > 4 && '...'}</span>
+                    {isRun ? (
+                      <>
+                        {preset.runData?.distanceKm ? `${preset.runData.distanceKm} km` : 'Run'}
+                        {preset.runData?.durationSeconds ? ` — ${Math.floor(preset.runData.durationSeconds / 60)}min` : ''}
+                      </>
+                    ) : (
+                      <>
+                        {preset.exercises.length} exercise{preset.exercises.length !== 1 ? 's' : ''}
+                        {exerciseNames.length > 0 && (
+                          <span> — {exerciseNames.join(', ')}{preset.exercises.length > 4 && '...'}</span>
+                        )}
+                      </>
                     )}
                   </div>
                 </button>

@@ -38,13 +38,23 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
   const [name, setName] = useState(workout?.name || initialPreset?.name || '');
   const [note, setNote] = useState(workout?.note || '');
   const [workoutDate, setWorkoutDate] = useState(workout?.date || new Date());
-  const [workoutType, setWorkoutType] = useState<WorkoutType>(workout?.type || 'strength');
-  const [distanceKm, setDistanceKm] = useState(workout?.runData?.distanceKm?.toString() || '');
+  const [workoutType, setWorkoutType] = useState<WorkoutType>(workout?.type || initialPreset?.type || 'strength');
+  const [distanceKm, setDistanceKm] = useState(
+    workout?.runData?.distanceKm?.toString() || initialPreset?.runData?.distanceKm?.toString() || ''
+  );
   const [durationMinutes, setDurationMinutes] = useState(
-    workout?.runData?.durationSeconds ? Math.floor(workout.runData.durationSeconds / 60).toString() : ''
+    workout?.runData?.durationSeconds
+      ? Math.floor(workout.runData.durationSeconds / 60).toString()
+      : initialPreset?.runData?.durationSeconds
+        ? Math.floor(initialPreset.runData.durationSeconds / 60).toString()
+        : ''
   );
   const [durationSeconds, setDurationSeconds] = useState(
-    workout?.runData?.durationSeconds ? (workout.runData.durationSeconds % 60).toString() : ''
+    workout?.runData?.durationSeconds
+      ? (workout.runData.durationSeconds % 60).toString()
+      : initialPreset?.runData?.durationSeconds
+        ? (initialPreset.runData.durationSeconds % 60).toString()
+        : ''
   );
   const [showPresetPicker, setShowPresetPicker] = useState(false);
   const [availablePresets, setAvailablePresets] = useState<WorkoutPreset[]>([]);
@@ -62,10 +72,12 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
   );
   
 
-  const initialExercises = workout?.exercises || (initialPreset?.exercises.map(ex => ({
-    ...ex,
-    id: crypto.randomUUID(),
-  }))) || ((workout?.type || 'strength') === 'run' ? [] : [
+  const initialExercises = workout?.exercises || (initialPreset?.exercises && initialPreset.exercises.length > 0
+    ? initialPreset.exercises.map(ex => ({
+        ...ex,
+        id: crypto.randomUUID(),
+      }))
+    : null) || ((workout?.type || initialPreset?.type || 'strength') === 'run' ? [] : [
     {
       id: crypto.randomUUID(),
       name: '',
@@ -508,11 +520,17 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
 
   const handleSelectPreset = (preset: WorkoutPreset) => {
     setName(preset.name);
+    if (preset.type) setWorkoutType(preset.type);
+    if (preset.type === 'run' && preset.runData) {
+      setDistanceKm(preset.runData.distanceKm?.toString() || '');
+      const totalSec = preset.runData.durationSeconds || 0;
+      setDurationMinutes(Math.floor(totalSec / 60).toString());
+      setDurationSeconds((totalSec % 60).toString());
+    }
     setExercises(
-      preset.exercises.map((ex) => ({
-        ...ex,
-        id: crypto.randomUUID(),
-      }))
+      preset.exercises.length > 0
+        ? preset.exercises.map((ex) => ({ ...ex, id: crypto.randomUUID() }))
+        : preset.type === 'run' ? [] : [{ id: crypto.randomUUID(), name: '', weight: '', useEffectiveReps: false }]
     );
     setShowPresetPicker(false);
     if (preset.exercises.length > 0) {
