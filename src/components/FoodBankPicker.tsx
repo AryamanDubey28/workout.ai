@@ -9,6 +9,7 @@ import {
   X, Bookmark, Loader2, Trash2, Search, Plus, Camera, Sparkles,
   ArrowLeft, Pencil, Check, Save,
 } from 'lucide-react';
+import { getCategoryForTime } from '@/lib/mealUtils';
 
 type View = 'list' | 'detail' | 'analyze' | 'log';
 
@@ -38,7 +39,7 @@ export function FoodBankPicker({
 
   // Log view state
   const [selectedMeal, setSelectedMeal] = useState<SavedMeal | null>(null);
-  const [selectedCategory, setSelectedCategory] = useState<MealCategory>('breakfast');
+  const [selectedCategory, setSelectedCategory] = useState<MealCategory>(() => getCategoryForTime(new Date()));
 
   // Detail/edit view state
   const [editMeal, setEditMeal] = useState<SavedMeal | null>(null);
