@@ -92,3 +92,7 @@ Configured via `@ducanh2912/next-pwa` in `next.config.js`. Auth routes are exclu
 ### Versioning
 
 After completing a new feature or improvement, always increment the version displayed in `src/components/UserProfile.tsx`. Use `+0.0.1` for small changes and `+0.1.0` for larger features.
+
+### Merge workflow
+
+When the user says "merge it in", "commit and merge", or equivalent — perform the full workflow: commit all changes, push the branch, create a PR, then merge the PR into main.
