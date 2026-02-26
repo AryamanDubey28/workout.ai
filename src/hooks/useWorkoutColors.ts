@@ -5,28 +5,41 @@ import { Workout } from '@/types/workout';
 import {
   PaletteEntry,
   getWorkoutColor,
+  matchWorkoutToPreset,
   loadColorOverrides,
   saveColorOverrides,
 } from '@/lib/calendarColors';
 
-export function useWorkoutColors(workouts: Workout[]) {
+export function useWorkoutColors(workouts: Workout[], presetNames: string[]) {
   const [overrides, setOverrides] = useState<Record<string, number>>({});
 
   useEffect(() => {
     setOverrides(loadColorOverrides());
   }, []);
 
-  const uniqueNames = useMemo(() => {
-    const names = new Set<string>();
+  // Derive colour categories: preset names + any unmatched workout names
+  const categories = useMemo(() => {
+    const presetSet = new Set(presetNames.map((p) => p.toLowerCase().trim()));
+    const unmatchedSet = new Set<string>();
+
     workouts.forEach((w) => {
-      if (w.name) names.add(w.name.toLowerCase().trim());
+      if (!w.name) return;
+      const match = matchWorkoutToPreset(w.name, presetNames);
+      if (!match) {
+        unmatchedSet.add(w.name.toLowerCase().trim());
+      }
     });
-    return Array.from(names).sort();
-  }, [workouts]);
+
+    // Presets first (in their split order), then unmatched sorted alphabetically
+    return [
+      ...presetNames.map((p) => p.toLowerCase().trim()),
+      ...Array.from(unmatchedSet).sort(),
+    ];
+  }, [workouts, presetNames]);
 
   const getColor = useCallback(
-    (name: string): PaletteEntry => getWorkoutColor(name, overrides),
-    [overrides]
+    (name: string): PaletteEntry => getWorkoutColor(name, overrides, presetNames),
+    [overrides, presetNames]
   );
 
   const setColorOverride = useCallback((name: string, paletteIndex: number) => {
@@ -48,5 +61,5 @@ export function useWorkoutColors(workouts: Workout[]) {
     });
   }, []);
 
-  return { getColor, setColorOverride, removeColorOverride, uniqueNames, overrides };
+  return { getColor, setColorOverride, removeColorOverride, categories, overrides };
 }

@@ -23,30 +23,42 @@ export function CalendarDayCell({
   getColor,
   onTap,
 }: CalendarDayCellProps) {
+  const hasWorkouts = workouts.length > 0;
+  // Use the first workout's colour as the cell background
+  const primaryColor = hasWorkouts ? getColor(workouts[0].name || 'Workout') : null;
+
   return (
     <button
       onClick={onTap}
       className={cn(
         'relative flex flex-col items-center justify-start p-1 h-14 w-full rounded-lg transition-all duration-200',
-        isCurrentMonth ? 'text-foreground' : 'text-muted-foreground/30 pointer-events-none',
-        isToday && 'ring-2 ring-primary/40',
-        isSelected && 'bg-primary/10',
-        isCurrentMonth && workouts.length > 0 && 'hover:bg-accent/50 cursor-pointer',
-        isCurrentMonth && workouts.length === 0 && 'cursor-default',
+        isCurrentMonth ? '' : 'opacity-20 pointer-events-none',
+        isToday && 'ring-2 ring-primary/50',
+        isSelected && !hasWorkouts && 'bg-primary/10',
+        isSelected && hasWorkouts && 'ring-2 ring-foreground/30',
+        !hasWorkouts && isCurrentMonth && isPastOrToday(date) && 'cursor-pointer',
+        !hasWorkouts && isCurrentMonth && !isPastOrToday(date) && 'cursor-default',
+        hasWorkouts && isCurrentMonth && 'cursor-pointer',
         'active:scale-95'
       )}
+      style={
+        hasWorkouts && isCurrentMonth
+          ? { backgroundColor: `${primaryColor!.hex}20` }
+          : undefined
+      }
     >
       <span
         className={cn(
-          'text-sm font-medium leading-none',
-          isToday && 'text-primary font-bold'
+          'text-sm font-medium leading-none z-10',
+          isToday && 'text-primary font-bold',
+          hasWorkouts && isCurrentMonth && !isToday && primaryColor?.text
         )}
       >
         {date.getDate()}
       </span>
 
       <div className="flex gap-0.5 mt-auto mb-0.5">
-        {workouts.length > 0 ? (
+        {hasWorkouts ? (
           <>
             {workouts.slice(0, 3).map((w, i) => {
               const color = getColor(w.name || 'Workout');

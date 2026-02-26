@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Workout } from '@/types/workout';
 import { formatCalendarDateKey } from '@/lib/calendarColors';
 import { useWorkoutColors } from '@/hooks/useWorkoutColors';
@@ -18,9 +18,29 @@ export function CalendarView({ workouts }: CalendarViewProps) {
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [showLegend, setShowLegend] = useState(false);
+  const [presetNames, setPresetNames] = useState<string[]>([]);
 
-  const { getColor, setColorOverride, removeColorOverride, uniqueNames, overrides } =
-    useWorkoutColors(workouts);
+  // Fetch presets to get canonical workout types for colour matching
+  useEffect(() => {
+    async function loadPresets() {
+      try {
+        const res = await fetch('/api/presets');
+        if (res.ok) {
+          const data = await res.json();
+          const names = (data.presets || [])
+            .sort((a: any, b: any) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+            .map((p: any) => p.name as string);
+          setPresetNames(names);
+        }
+      } catch (err) {
+        console.error('Failed to load presets for calendar:', err);
+      }
+    }
+    loadPresets();
+  }, []);
+
+  const { getColor, setColorOverride, removeColorOverride, categories, overrides } =
+    useWorkoutColors(workouts, presetNames);
 
   // Build workout-by-date map
   const workoutsByDate = useMemo(() => {
@@ -42,7 +62,6 @@ export function CalendarView({ workouts }: CalendarViewProps) {
     const lastDay = new Date(year, month + 1, 0);
     const daysInMonth = lastDay.getDate();
 
-    // Count days up to today (or end of month if viewing past months)
     const isCurrentOrFutureMonth =
       year > today.getFullYear() ||
       (year === today.getFullYear() && month >= today.getMonth());
@@ -160,7 +179,7 @@ export function CalendarView({ workouts }: CalendarViewProps) {
 
       {/* Legend Sheet */}
       <CalendarLegend
-        uniqueNames={uniqueNames}
+        categories={categories}
         getColor={getColor}
         overrides={overrides}
         onSetColor={setColorOverride}

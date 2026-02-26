@@ -32,10 +32,35 @@ export function hashWorkoutName(name: string): number {
   return Math.abs(hash) % WORKOUT_COLOR_PALETTE.length;
 }
 
-export function getWorkoutColor(name: string, overrides: Record<string, number>): PaletteEntry {
-  const normalized = name.toLowerCase().trim();
-  const overrideIndex = overrides[normalized];
-  const index = overrideIndex !== undefined ? overrideIndex : hashWorkoutName(name);
+/**
+ * Match a workout name to a preset name using fuzzy matching.
+ * "Legs - Injury" → "Legs", "Light Push" → "Push", "Pull" → "Pull"
+ * Prefers longer preset matches to avoid "Leg" matching over "Legs".
+ */
+export function matchWorkoutToPreset(workoutName: string, presetNames: string[]): string | null {
+  const normalized = workoutName.toLowerCase().trim();
+
+  // Exact match first
+  const exact = presetNames.find((p) => p.toLowerCase().trim() === normalized);
+  if (exact) return exact.toLowerCase().trim();
+
+  // Contains match — longest preset name first to prefer specific matches
+  const sorted = [...presetNames].sort((a, b) => b.length - a.length);
+  for (const preset of sorted) {
+    if (normalized.includes(preset.toLowerCase().trim())) {
+      return preset.toLowerCase().trim();
+    }
+  }
+
+  return null;
+}
+
+export function getWorkoutColor(name: string, overrides: Record<string, number>, presetNames?: string[]): PaletteEntry {
+  // Resolve to base preset type if possible
+  const baseType = presetNames ? matchWorkoutToPreset(name, presetNames) : null;
+  const colorKey = baseType || name.toLowerCase().trim();
+  const overrideIndex = overrides[colorKey];
+  const index = overrideIndex !== undefined ? overrideIndex : hashWorkoutName(colorKey);
   return WORKOUT_COLOR_PALETTE[index];
 }
 
