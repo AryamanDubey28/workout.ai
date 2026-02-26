@@ -1,8 +1,15 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { AlertTriangle, X } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { AlertTriangle } from 'lucide-react';
 
 interface DeleteConfirmDialogProps {
   isOpen: boolean;
@@ -11,58 +18,41 @@ interface DeleteConfirmDialogProps {
   onCancel: () => void;
 }
 
-export function DeleteConfirmDialog({ isOpen, workoutName, onConfirm, onCancel }: DeleteConfirmDialogProps) {
-  if (!isOpen) return null;
-
+export function DeleteConfirmDialog({
+  isOpen,
+  workoutName,
+  onConfirm,
+  onCancel,
+}: DeleteConfirmDialogProps) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-backdrop-in">
-      <Card className="w-full max-w-md mx-auto animate-modal-in border-border/50 shadow-2xl shadow-black/25">
-        <CardHeader className="pb-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-destructive/10 rounded-full">
-                <AlertTriangle className="h-5 w-5 text-destructive" />
-              </div>
-              <CardTitle className="text-lg">Delete Workout</CardTitle>
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onCancel()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-destructive/10 rounded-full shrink-0">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
             </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onCancel}
-              className="h-8 w-8 p-0 interactive-scale"
-            >
-              <X className="h-4 w-4" />
-            </Button>
+            <div>
+              <DialogTitle>Delete Workout</DialogTitle>
+              <DialogDescription className="mt-1">
+                Are you sure you want to delete{' '}
+                <span className="font-medium text-foreground">
+                  &ldquo;{workoutName || 'Untitled Workout'}&rdquo;
+                </span>
+                ? This action cannot be undone.
+              </DialogDescription>
+            </div>
           </div>
-        </CardHeader>
-        
-        <CardContent className="space-y-4">
-          <div className="text-sm text-muted-foreground">
-            Are you sure you want to delete{' '}
-            <span className="font-medium text-foreground">
-              "{workoutName || 'Untitled Workout'}"
-            </span>
-            ? This action cannot be undone.
-          </div>
-          
-          <div className="flex flex-col-reverse sm:flex-row gap-2 sm:gap-3 pt-2">
-            <Button
-              variant="outline"
-              onClick={onCancel}
-              className="flex-1 interactive-scale hover:bg-primary/5 hover:border-primary/30 hover:text-primary transition-all duration-200"
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={onConfirm}
-              className="flex-1 interactive-scale hover:shadow-lg hover:shadow-destructive/25 transition-all duration-200"
-            >
-              Delete Workout
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button variant="destructive" onClick={onConfirm}>
+            Delete
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

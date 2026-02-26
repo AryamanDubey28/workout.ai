@@ -1,9 +1,14 @@
 'use client';
 
 import { WorkoutPreset } from '@/types/workout';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { X, Dumbbell, Footprints, Loader2 } from 'lucide-react';
+import {
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+} from '@/components/ui/drawer';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Dumbbell, Footprints } from 'lucide-react';
 
 interface PresetPickerProps {
   presets: WorkoutPreset[];
@@ -13,33 +18,29 @@ interface PresetPickerProps {
   onClose: () => void;
 }
 
-export function PresetPicker({ presets, isLoading, isOpen, onSelect, onClose }: PresetPickerProps) {
-  if (!isOpen) return null;
-
+export function PresetPicker({
+  presets,
+  isLoading,
+  isOpen,
+  onSelect,
+  onClose,
+}: PresetPickerProps) {
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-backdrop-in"
-      onClick={onClose}
-    >
-      <Card
-        className="w-full max-w-sm mx-auto animate-modal-in border-border/50 shadow-2xl shadow-black/25"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-base flex items-center gap-2">
-              <Dumbbell className="h-4 w-4 text-primary" />
-              Load Preset
-            </CardTitle>
-            <Button variant="ghost" size="sm" onClick={onClose} className="h-8 w-8 p-0">
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-2 pt-0">
+    <Drawer open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DrawerContent className="max-h-[60dvh]">
+        <DrawerHeader>
+          <DrawerTitle className="flex items-center gap-2">
+            <Dumbbell className="h-4 w-4 text-primary" />
+            Load Preset
+          </DrawerTitle>
+        </DrawerHeader>
+
+        <div className="px-4 pb-6 space-y-2 overflow-y-auto">
           {isLoading ? (
-            <div className="flex items-center justify-center py-6">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            <div className="space-y-2">
+              {[1, 2, 3].map((i) => (
+                <Skeleton key={i} className="h-16 w-full rounded-xl" />
+              ))}
             </div>
           ) : presets.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-6">
@@ -56,23 +57,36 @@ export function PresetPicker({ presets, isLoading, isOpen, onSelect, onClose }: 
                 <button
                   key={preset.id}
                   onClick={() => onSelect(preset)}
-                  className="w-full text-left p-3 rounded-lg border border-border/50 hover:border-primary/30 hover:bg-primary/5 transition-all duration-200 group"
+                  className="w-full text-left p-3 rounded-xl border border-border/50 hover:border-primary/30 hover:bg-primary/5 transition-colors"
                 >
-                  <div className="font-medium group-hover:text-primary transition-colors flex items-center gap-1.5">
-                    {isRun ? <Footprints className="h-3.5 w-3.5 text-primary shrink-0" /> : <Dumbbell className="h-3.5 w-3.5 text-primary shrink-0" />}
+                  <div className="font-medium text-sm flex items-center gap-1.5">
+                    {isRun ? (
+                      <Footprints className="h-3.5 w-3.5 text-primary shrink-0" />
+                    ) : (
+                      <Dumbbell className="h-3.5 w-3.5 text-primary shrink-0" />
+                    )}
                     {preset.name}
                   </div>
                   <div className="text-xs text-muted-foreground mt-0.5">
                     {isRun ? (
                       <>
-                        {preset.runData?.distanceKm ? `${preset.runData.distanceKm} km` : 'Run'}
-                        {preset.runData?.durationSeconds ? ` — ${Math.floor(preset.runData.durationSeconds / 60)}min` : ''}
+                        {preset.runData?.distanceKm
+                          ? `${preset.runData.distanceKm} km`
+                          : 'Run'}
+                        {preset.runData?.durationSeconds
+                          ? ` — ${Math.floor(preset.runData.durationSeconds / 60)}min`
+                          : ''}
                       </>
                     ) : (
                       <>
-                        {preset.exercises.length} exercise{preset.exercises.length !== 1 ? 's' : ''}
+                        {preset.exercises.length} exercise
+                        {preset.exercises.length !== 1 ? 's' : ''}
                         {exerciseNames.length > 0 && (
-                          <span> — {exerciseNames.join(', ')}{preset.exercises.length > 4 && '...'}</span>
+                          <span>
+                            {' '}
+                            — {exerciseNames.join(', ')}
+                            {preset.exercises.length > 4 && '...'}
+                          </span>
                         )}
                       </>
                     )}
@@ -81,8 +95,8 @@ export function PresetPicker({ presets, isLoading, isOpen, onSelect, onClose }: 
               );
             })
           )}
-        </CardContent>
-      </Card>
-    </div>
+        </div>
+      </DrawerContent>
+    </Drawer>
   );
 }

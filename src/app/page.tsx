@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Dumbbell, Plus, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -18,6 +18,7 @@ import { SplitReminderBanner } from "@/components/SplitReminderBanner";
 import { Workout, WorkoutPreset, SplitReminder } from "@/types/workout";
 import { User as UserType } from "@/types/user";
 import { useScrollDirection } from "@/hooks/useScrollDirection";
+import { groupWorkoutsByDate } from "@/lib/dateGrouping";
 
 export default function Home() {
   const [user, setUser] = useState<UserType | null>(null);
@@ -31,6 +32,8 @@ export default function Home() {
   const [showPresetManager, setShowPresetManager] = useState(false);
   const [splitReminder, setSplitReminder] = useState<SplitReminder | null>(null);
   const [initialPreset, setInitialPreset] = useState<WorkoutPreset | null>(null);
+
+  const workoutGroups = useMemo(() => groupWorkoutsByDate(workouts), [workouts]);
 
   // On mount, if there is a draft in localStorage, auto-open the form
   const hasCheckedDraftRef = useRef(false);
@@ -479,14 +482,23 @@ export default function Home() {
                     </div>
                   </div>
                 ) : (
-                  <div className="grid gap-3 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3 stagger-children">
-                    {workouts.map((workout) => (
-                      <WorkoutCard
-                        key={workout.id}
-                        workout={workout}
-                        onClick={() => handleEditWorkout(workout)}
-                        onDelete={() => handleDeleteWorkout(workout)}
-                      />
+                  <div className="space-y-6">
+                    {workoutGroups.map((group) => (
+                      <div key={group.label}>
+                        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 px-1">
+                          {group.label}
+                        </h3>
+                        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                          {group.workouts.map((workout) => (
+                            <WorkoutCard
+                              key={workout.id}
+                              workout={workout}
+                              onClick={() => handleEditWorkout(workout)}
+                              onDelete={() => handleDeleteWorkout(workout)}
+                            />
+                          ))}
+                        </div>
+                      </div>
                     ))}
                   </div>
                 )}

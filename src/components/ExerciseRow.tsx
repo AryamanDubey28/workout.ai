@@ -1,13 +1,14 @@
 'use client';
 
-import { useState } from 'react';
 import { Exercise } from '@/types/workout';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { Autocomplete } from '@/components/ui/autocomplete';
-import { Trash2, ChevronDown, ChevronRight, Edit3, Dumbbell, GripVertical } from 'lucide-react';
-import {
-  useSortable,
-} from '@dnd-kit/sortable';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Trash2, ChevronDown, GripVertical } from 'lucide-react';
+import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
 interface ExerciseRowProps {
@@ -18,10 +19,22 @@ interface ExerciseRowProps {
   onToggleExpand?: () => void;
 }
 
-interface SetsAndRepsInputsProps {
-  exercise: Exercise;
-  onChange: (exercise: Exercise) => void;
+function formatCompactSummary(exercise: Exercise): string {
+  if (exercise.useEffectiveReps) {
+    return `${exercise.effectiveRepsMax || '?'}/${exercise.effectiveRepsTarget || '?'} ER`;
+  }
+  if (exercise.repsPerSet && exercise.repsPerSet.length > 0) {
+    const allSame = exercise.repsPerSet.every(r => r === exercise.repsPerSet![0]);
+    if (allSame) return `${exercise.repsPerSet.length}×${exercise.repsPerSet[0]}`;
+    return exercise.repsPerSet.join(',');
+  }
+  if (exercise.sets && exercise.reps) {
+    return `${exercise.sets}×${exercise.reps}`;
+  }
+  return '';
 }
+
+// --- Weight Inputs ---
 
 interface WeightInputsProps {
   exercise: Exercise;
@@ -34,68 +47,39 @@ function WeightInputs({ exercise, onChange }: WeightInputsProps) {
 
   const handleGeneralWeightChange = (weight: string | 'BW') => {
     if (!hasMultipleSets || !isUsingPerSetWeights) {
-      // Simple case: update the general weight field
-      onChange({
-        ...exercise,
-        weight: weight,
-      });
+      onChange({ ...exercise, weight });
       return;
     }
-
-    // Apply the weight to all sets
     const newWeightsPerSet = new Array(exercise.sets).fill(weight);
-    
-    onChange({
-      ...exercise,
-      weight: weight,
-      weightsPerSet: newWeightsPerSet,
-    });
+    onChange({ ...exercise, weight, weightsPerSet: newWeightsPerSet });
   };
 
   const handleWeightForSetChange = (setIndex: number, weight: string | 'BW') => {
-    const currentWeightsPerSet = exercise.weightsPerSet || [];
-    const newWeightsPerSet = [...currentWeightsPerSet];
+    const newWeightsPerSet = [...(exercise.weightsPerSet || [])];
     newWeightsPerSet[setIndex] = weight;
-
-    onChange({
-      ...exercise,
-      weightsPerSet: newWeightsPerSet,
-    });
+    onChange({ ...exercise, weightsPerSet: newWeightsPerSet });
   };
 
   const enablePerSetWeights = () => {
     if (!exercise.sets || exercise.sets < 1) return;
-    
-    // Initialize weightsPerSet array with current weight for all sets
     const newWeightsPerSet = new Array(exercise.sets).fill(exercise.weight || '');
-    
-    onChange({
-      ...exercise,
-      weightsPerSet: newWeightsPerSet,
-    });
+    onChange({ ...exercise, weightsPerSet: newWeightsPerSet });
   };
 
   const disablePerSetWeights = () => {
-    // Use the first weight from the array as the general weight, or keep current
     const generalWeight = exercise.weightsPerSet?.[0] || exercise.weight || '';
-    
-    onChange({
-      ...exercise,
-      weight: generalWeight,
-      weightsPerSet: undefined,
-    });
+    onChange({ ...exercise, weight: generalWeight, weightsPerSet: undefined });
   };
 
   // Simple weight input (no sets or single set)
   if (!hasMultipleSets) {
     return (
-      <div className="flex gap-3 items-center">
+      <div className="flex gap-2 items-center">
         <Button
           type="button"
           variant={exercise.weight === 'BW' ? 'default' : 'outline'}
           onClick={() => handleGeneralWeightChange(exercise.weight === 'BW' ? '' : 'BW')}
-          className="px-4 py-3 text-sm font-medium shrink-0 h-12 min-w-[80px] interactive-scale transition-all duration-200"
-          title="Toggle bodyweight"
+          className="px-3 py-2 text-xs font-medium shrink-0 h-10"
         >
           BW
         </Button>
@@ -105,25 +89,23 @@ function WeightInputs({ exercise, onChange }: WeightInputsProps) {
             placeholder="Weight (kg)"
             value={exercise.weight || ''}
             onChange={(e) => handleGeneralWeightChange(e.target.value)}
-            className="flex-1 px-4 py-3 text-base border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-12 transition-all duration-200 hover:border-border/70"
+            className="flex-1 px-3 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-10 transition-colors"
           />
         )}
       </div>
     );
   }
 
-  // Multi-set weight options
+  // Multi-set: general weight + toggle for per-set
   if (!isUsingPerSetWeights) {
     return (
-      <div className="space-y-3">
-        {/* General weight input */}
-        <div className="flex gap-3 items-center">
+      <div className="space-y-2">
+        <div className="flex gap-2 items-center">
           <Button
             type="button"
             variant={exercise.weight === 'BW' ? 'default' : 'outline'}
             onClick={() => handleGeneralWeightChange(exercise.weight === 'BW' ? '' : 'BW')}
-            className="px-4 py-3 text-sm font-medium shrink-0 h-12 min-w-[80px] interactive-scale transition-all duration-200"
-            title="Toggle bodyweight"
+            className="px-3 py-2 text-xs font-medium shrink-0 h-10"
           >
             BW
           </Button>
@@ -133,218 +115,56 @@ function WeightInputs({ exercise, onChange }: WeightInputsProps) {
               placeholder="Weight (kg)"
               value={exercise.weight || ''}
               onChange={(e) => handleGeneralWeightChange(e.target.value)}
-              className="flex-1 px-4 py-3 text-base border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-12 transition-all duration-200 hover:border-border/70"
+              className="flex-1 px-3 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-10 transition-colors"
             />
           )}
         </div>
-        
-        {/* Simple option to enable per-set weights */}
-        <div className="flex items-center justify-end pt-1">
-          <button
-            type="button"
-            onClick={enablePerSetWeights}
-            className="text-xs text-muted-foreground hover:text-primary underline underline-offset-2 transition-all duration-200"
-          >
-            Different weights per set?
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // Per-set weight inputs - Simple horizontal layout
-  return (
-    <div className="space-y-3">
-      {/* Simple header with exit option */}
-      <div className="flex items-center justify-between">
-        <div className="text-sm text-muted-foreground">Different weights per set</div>
-        <Button
+        <button
           type="button"
-          variant="ghost"
-          size="sm"
-          onClick={disablePerSetWeights}
-          className="px-2 py-1 text-xs text-muted-foreground hover:text-foreground transition-all duration-200"
-          title="Use same weight for all sets"
+          onClick={enablePerSetWeights}
+          className="text-xs text-muted-foreground hover:text-primary transition-colors"
         >
-          ✕
-        </Button>
+          Different weights per set?
+        </button>
       </div>
-
-      {/* Simple inline weight inputs */}
-      <div className="flex flex-wrap gap-2">
-        {Array.from({ length: exercise.sets || 0 }, (_, index) => (
-          <div key={index} className="flex items-center gap-1 min-w-0">
-            <span className="text-xs text-muted-foreground shrink-0">{index + 1}:</span>
-            <Button
-              type="button"
-              variant={exercise.weightsPerSet?.[index] === 'BW' ? 'default' : 'outline'}
-              onClick={() => handleWeightForSetChange(index, exercise.weightsPerSet?.[index] === 'BW' ? '' : 'BW')}
-              className="px-2 py-1 text-xs h-8 min-w-[35px] transition-all duration-200"
-              title={`Toggle bodyweight for set ${index + 1}`}
-            >
-              BW
-            </Button>
-            {exercise.weightsPerSet?.[index] !== 'BW' && (
-              <input
-                type="text"
-                placeholder="kg"
-                value={exercise.weightsPerSet?.[index] || ''}
-                onChange={(e) => handleWeightForSetChange(index, e.target.value)}
-                className="w-16 px-2 py-1 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-8 transition-all duration-200 hover:border-border/70 text-center"
-              />
-            )}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function SetsAndRepsInputs({ exercise, onChange }: SetsAndRepsInputsProps) {
-  const handleSetsChange = (newSets: number | undefined) => {
-    if (!newSets || newSets < 1) {
-      // Clear everything if sets is 0 or undefined
-      onChange({
-        ...exercise,
-        sets: undefined,
-        reps: undefined,
-        repsPerSet: undefined,
-        weightsPerSet: undefined,
-      });
-      return;
-    }
-
-    // Initialize repsPerSet array based on number of sets
-    const currentRepsPerSet = exercise.repsPerSet || [];
-    const newRepsPerSet: number[] = [];
-    
-    for (let i = 0; i < newSets; i++) {
-      // Preserve existing reps if available, otherwise use the general reps value or 0
-      newRepsPerSet[i] = currentRepsPerSet[i] || exercise.reps || 0;
-    }
-
-    // Initialize weightsPerSet array if it was being used
-    let newWeightsPerSet: (string | 'BW')[] | undefined = undefined;
-    if (exercise.weightsPerSet && exercise.weightsPerSet.length > 0) {
-      const currentWeightsPerSet = exercise.weightsPerSet || [];
-      newWeightsPerSet = [];
-      
-      for (let i = 0; i < newSets; i++) {
-        // Preserve existing weights if available, otherwise use the general weight value
-        newWeightsPerSet[i] = currentWeightsPerSet[i] || exercise.weight || '';
-      }
-    }
-
-    onChange({
-      ...exercise,
-      sets: newSets,
-      repsPerSet: newRepsPerSet,
-      weightsPerSet: newWeightsPerSet,
-      // Keep the general reps for backwards compatibility but it won't be used in display
-      reps: exercise.reps,
-    });
-  };
-
-  const handleRepsForSetChange = (setIndex: number, reps: number | undefined) => {
-    const currentRepsPerSet = exercise.repsPerSet || [];
-    const newRepsPerSet = [...currentRepsPerSet];
-    newRepsPerSet[setIndex] = reps || 0;
-
-    onChange({
-      ...exercise,
-      repsPerSet: newRepsPerSet,
-    });
-  };
-
-  const handleGeneralRepsChange = (reps: number | undefined) => {
-    if (!exercise.sets || exercise.sets < 1) {
-      // If no sets defined, just update the general reps field
-      onChange({
-        ...exercise,
-        reps: reps,
-      });
-      return;
-    }
-
-    // Apply the reps to all sets
-    const newRepsPerSet = new Array(exercise.sets).fill(reps || 0);
-    
-    onChange({
-      ...exercise,
-      reps: reps,
-      repsPerSet: newRepsPerSet,
-    });
-  };
-
-  // If no sets defined or sets is 0, show the simple two-input layout
-  if (!exercise.sets || exercise.sets < 1) {
-    return (
-      <>
-        <div>
-          <input
-            type="number"
-            placeholder="Sets"
-            value={exercise.sets || ''}
-            onChange={(e) => handleSetsChange(parseInt(e.target.value) || undefined)}
-            className="w-full px-4 py-3 text-base border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-12 transition-all duration-200 hover:border-border/70"
-          />
-          <div className="text-xs text-muted-foreground mt-1.5 px-1">Sets</div>
-        </div>
-        <div>
-          <input
-            type="number"
-            placeholder="Reps"
-            value={exercise.reps || ''}
-            onChange={(e) => handleGeneralRepsChange(parseInt(e.target.value) || undefined)}
-            className="w-full px-4 py-3 text-base border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-12 transition-all duration-200 hover:border-border/70"
-          />
-          <div className="text-xs text-muted-foreground mt-1.5 px-1">Reps</div>
-        </div>
-      </>
     );
   }
 
-  // Show expanded view with individual set inputs
+  // Per-set weight inputs — horizontal scroll (Bug #4 fix)
   return (
-    <div className="space-y-4">
-      {/* Sets input row */}
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <input
-            type="number"
-            placeholder="Sets"
-            value={exercise.sets || ''}
-            onChange={(e) => handleSetsChange(parseInt(e.target.value) || undefined)}
-            className="w-full px-4 py-3 text-base border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-12 transition-all duration-200 hover:border-border/70"
-          />
-          <div className="text-xs text-muted-foreground mt-1.5 px-1">Sets</div>
-        </div>
-        <div>
-          <input
-            type="number"
-            placeholder="Apply to all"
-            value={exercise.reps || ''}
-            onChange={(e) => handleGeneralRepsChange(parseInt(e.target.value) || undefined)}
-            className="w-full px-4 py-3 text-base border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-12 transition-all duration-200 hover:border-border/70"
-          />
-          <div className="text-xs text-muted-foreground mt-1.5 px-1">Quick fill all sets</div>
-        </div>
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-muted-foreground">Weight per set</span>
+        <button
+          type="button"
+          onClick={disablePerSetWeights}
+          className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          Same weight
+        </button>
       </div>
-
-      {/* Individual set reps inputs */}
-      <div className="space-y-2">
-        <div className="text-sm font-medium text-muted-foreground">Reps per set:</div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
-          {Array.from({ length: exercise.sets }, (_, index) => (
-            <div key={index} className="space-y-1">
-              <input
-                type="number"
-                placeholder="0"
-                value={exercise.repsPerSet?.[index] || ''}
-                onChange={(e) => handleRepsForSetChange(index, parseInt(e.target.value) || undefined)}
-                className="w-full px-3 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-10 transition-all duration-200 hover:border-border/70"
-              />
-              <div className="text-xs text-muted-foreground text-center">Set {index + 1}</div>
+      <div className="overflow-x-auto -mx-1 px-1 pb-1">
+        <div className="flex gap-2 min-w-min">
+          {Array.from({ length: exercise.sets || 0 }, (_, index) => (
+            <div key={index} className="flex items-center gap-1 shrink-0">
+              <span className="text-[10px] text-muted-foreground shrink-0 w-3 text-right">{index + 1}</span>
+              <Button
+                type="button"
+                variant={exercise.weightsPerSet?.[index] === 'BW' ? 'default' : 'outline'}
+                onClick={() => handleWeightForSetChange(index, exercise.weightsPerSet?.[index] === 'BW' ? '' : 'BW')}
+                className="px-1.5 py-0.5 text-[10px] h-7 min-w-[30px]"
+              >
+                BW
+              </Button>
+              {exercise.weightsPerSet?.[index] !== 'BW' && (
+                <input
+                  type="text"
+                  placeholder="kg"
+                  value={exercise.weightsPerSet?.[index] || ''}
+                  onChange={(e) => handleWeightForSetChange(index, e.target.value)}
+                  className="w-14 px-2 py-1 text-xs border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-7 text-center transition-colors"
+                />
+              )}
             </div>
           ))}
         </div>
@@ -352,6 +172,129 @@ function SetsAndRepsInputs({ exercise, onChange }: SetsAndRepsInputsProps) {
     </div>
   );
 }
+
+// --- Sets & Reps Inputs ---
+
+interface SetsAndRepsInputsProps {
+  exercise: Exercise;
+  onChange: (exercise: Exercise) => void;
+}
+
+function SetsAndRepsInputs({ exercise, onChange }: SetsAndRepsInputsProps) {
+  const handleSetsChange = (newSets: number | undefined) => {
+    if (!newSets || newSets < 1) {
+      onChange({ ...exercise, sets: undefined, reps: undefined, repsPerSet: undefined, weightsPerSet: undefined });
+      return;
+    }
+
+    const currentRepsPerSet = exercise.repsPerSet || [];
+    const newRepsPerSet: number[] = [];
+    for (let i = 0; i < newSets; i++) {
+      newRepsPerSet[i] = currentRepsPerSet[i] || exercise.reps || 0;
+    }
+
+    let newWeightsPerSet: (string | 'BW')[] | undefined = undefined;
+    if (exercise.weightsPerSet && exercise.weightsPerSet.length > 0) {
+      newWeightsPerSet = [];
+      for (let i = 0; i < newSets; i++) {
+        newWeightsPerSet[i] = exercise.weightsPerSet[i] || exercise.weight || '';
+      }
+    }
+
+    onChange({ ...exercise, sets: newSets, repsPerSet: newRepsPerSet, weightsPerSet: newWeightsPerSet, reps: exercise.reps });
+  };
+
+  const handleRepsForSetChange = (setIndex: number, reps: number | undefined) => {
+    const newRepsPerSet = [...(exercise.repsPerSet || [])];
+    newRepsPerSet[setIndex] = reps || 0;
+    onChange({ ...exercise, repsPerSet: newRepsPerSet });
+  };
+
+  const handleGeneralRepsChange = (reps: number | undefined) => {
+    if (!exercise.sets || exercise.sets < 1) {
+      onChange({ ...exercise, reps });
+      return;
+    }
+    const newRepsPerSet = new Array(exercise.sets).fill(reps || 0);
+    onChange({ ...exercise, reps, repsPerSet: newRepsPerSet });
+  };
+
+  // No sets defined — simple two-input layout
+  if (!exercise.sets || exercise.sets < 1) {
+    return (
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <input
+            type="number"
+            placeholder="Sets"
+            value={exercise.sets || ''}
+            onChange={(e) => handleSetsChange(parseInt(e.target.value) || undefined)}
+            className="w-full px-3 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-10 transition-colors"
+          />
+          <span className="text-[10px] text-muted-foreground mt-1 block px-0.5">Sets</span>
+        </div>
+        <div>
+          <input
+            type="number"
+            placeholder="Reps"
+            value={exercise.reps || ''}
+            onChange={(e) => handleGeneralRepsChange(parseInt(e.target.value) || undefined)}
+            className="w-full px-3 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-10 transition-colors"
+          />
+          <span className="text-[10px] text-muted-foreground mt-1 block px-0.5">Reps</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Expanded: sets input + quick fill + per-set reps
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <input
+            type="number"
+            placeholder="Sets"
+            value={exercise.sets || ''}
+            onChange={(e) => handleSetsChange(parseInt(e.target.value) || undefined)}
+            className="w-full px-3 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-10 transition-colors"
+          />
+          <span className="text-[10px] text-muted-foreground mt-1 block px-0.5">Sets</span>
+        </div>
+        <div>
+          <input
+            type="number"
+            placeholder="Fill all"
+            value={exercise.reps || ''}
+            onChange={(e) => handleGeneralRepsChange(parseInt(e.target.value) || undefined)}
+            className="w-full px-3 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-10 transition-colors"
+          />
+          <span className="text-[10px] text-muted-foreground mt-1 block px-0.5">Quick fill</span>
+        </div>
+      </div>
+
+      <div>
+        <span className="text-xs text-muted-foreground mb-1.5 block">Reps per set</span>
+        <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
+          {Array.from({ length: exercise.sets }, (_, index) => (
+            <div key={index}>
+              <input
+                type="number"
+                placeholder="0"
+                value={exercise.repsPerSet?.[index] || ''}
+                onChange={(e) => handleRepsForSetChange(index, parseInt(e.target.value) || undefined)}
+                className="w-full px-2 py-1.5 text-xs border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-8 text-center transition-colors"
+              />
+              <span className="text-[9px] text-muted-foreground text-center block mt-0.5">Set {index + 1}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- Main ExerciseRow ---
 
 export function ExerciseRow({ exercise, onChange, onDelete, isExpanded = false, onToggleExpand }: ExerciseRowProps) {
   const {
@@ -369,45 +312,29 @@ export function ExerciseRow({ exercise, onChange, onDelete, isExpanded = false, 
   };
 
   const handleInputChange = (field: keyof Exercise, value: any) => {
-    onChange({
-      ...exercise,
-      [field]: value,
-    });
+    onChange({ ...exercise, [field]: value });
   };
 
   const handleExerciseSelect = (suggestion: any) => {
-    // Auto-fill exercise data from last used values
-    const updatedExercise = {
+    const updatedExercise: Exercise = {
       ...exercise,
       name: suggestion.name,
     };
 
-    // Fill in last used data if available
     if (suggestion.lastWeight) {
       updatedExercise.weight = suggestion.lastWeight;
     }
-    
+
     if (suggestion.useEffectiveReps !== undefined) {
       updatedExercise.useEffectiveReps = suggestion.useEffectiveReps;
-      
       if (suggestion.useEffectiveReps) {
-        if (suggestion.lastEffectiveRepsMax) {
-          updatedExercise.effectiveRepsMax = suggestion.lastEffectiveRepsMax;
-        }
-        if (suggestion.lastEffectiveRepsTarget) {
-          updatedExercise.effectiveRepsTarget = suggestion.lastEffectiveRepsTarget;
-        }
-        // Clear conflicting fields
+        if (suggestion.lastEffectiveRepsMax) updatedExercise.effectiveRepsMax = suggestion.lastEffectiveRepsMax;
+        if (suggestion.lastEffectiveRepsTarget) updatedExercise.effectiveRepsTarget = suggestion.lastEffectiveRepsTarget;
         updatedExercise.sets = undefined;
         updatedExercise.reps = undefined;
       } else {
-        if (suggestion.lastSets) {
-          updatedExercise.sets = suggestion.lastSets;
-        }
-        if (suggestion.lastReps) {
-          updatedExercise.reps = suggestion.lastReps;
-        }
-        // Clear conflicting fields
+        if (suggestion.lastSets) updatedExercise.sets = suggestion.lastSets;
+        if (suggestion.lastReps) updatedExercise.reps = suggestion.lastReps;
         updatedExercise.effectiveRepsMax = undefined;
         updatedExercise.effectiveRepsTarget = undefined;
       }
@@ -416,261 +343,158 @@ export function ExerciseRow({ exercise, onChange, onDelete, isExpanded = false, 
     onChange(updatedExercise);
   };
 
-  const toggleEffectiveReps = () => {
+  // Bug #3 fix: confirm before clearing data on ER toggle
+  const toggleEffectiveReps = (checked: boolean) => {
+    if (!checked) {
+      const hasERData = (exercise.effectiveRepsMax && exercise.effectiveRepsMax > 0) ||
+                        (exercise.effectiveRepsTarget && exercise.effectiveRepsTarget > 0);
+      if (hasERData && !window.confirm('Switch to Sets & Reps? This will clear your Effective Reps data.')) {
+        return;
+      }
+    } else {
+      const hasSetsData = (exercise.sets && exercise.sets > 0) ||
+                          (exercise.reps && exercise.reps > 0) ||
+                          (exercise.repsPerSet && exercise.repsPerSet.some(r => r > 0));
+      if (hasSetsData && !window.confirm('Switch to Effective Reps? This will clear your Sets & Reps data.')) {
+        return;
+      }
+    }
+
     onChange({
       ...exercise,
-      useEffectiveReps: !exercise.useEffectiveReps,
-      // Clear conflicting fields when toggling
-      ...(exercise.useEffectiveReps 
-        ? { effectiveRepsMax: undefined, effectiveRepsTarget: undefined }
-        : { sets: undefined, reps: undefined }
+      useEffectiveReps: checked,
+      ...(checked
+        ? { sets: undefined, reps: undefined, repsPerSet: undefined }
+        : { effectiveRepsMax: undefined, effectiveRepsTarget: undefined }
       ),
     });
   };
 
-  const formatExerciseSummary = () => {
-    if (exercise.useEffectiveReps) {
-      const weight = exercise.weight === 'BW' ? 'BW' : exercise.weight ? `${exercise.weight}kg` : '';
-      const max = exercise.effectiveRepsMax || '?';
-      const target = exercise.effectiveRepsTarget || '?';
-      return `${weight} - ${max}/${target} ER`.trim();
-    }
+  const weightLabel = exercise.weight === 'BW' ? 'BW' : exercise.weight ? `${exercise.weight}kg` : '';
+  const summaryLabel = formatCompactSummary(exercise);
 
-    // Check if we have per-set weights
-    const hasPerSetWeights = exercise.weightsPerSet && exercise.weightsPerSet.length > 0;
-    
-    if (hasPerSetWeights) {
-      // Show combined weight+reps per set for clarity
-      const setDetails = [];
-      for (let i = 0; i < (exercise.weightsPerSet?.length || 0); i++) {
-        const weight = exercise.weightsPerSet![i];
-        const reps = exercise.repsPerSet?.[i] || '?';
-        const weightStr = weight === 'BW' ? 'BW' : weight ? `${weight}kg` : '?kg';
-        setDetails.push(`${weightStr}×${reps}`);
-      }
-      return `⚖️ ${setDetails.join(', ')}`;
-    } else {
-      // Standard weight display
-      const weight = exercise.weight === 'BW' ? 'BW' : exercise.weight ? `${exercise.weight}kg` : '';
-      
-      if (exercise.repsPerSet && exercise.repsPerSet.length > 0) {
-        const sets = exercise.repsPerSet.length;
-        const allSameReps = exercise.repsPerSet.every(reps => reps === exercise.repsPerSet![0]);
-        
-        if (allSameReps) {
-          // All sets have same reps: "20kg - 3x8"
-          return `${weight} - ${sets}x${exercise.repsPerSet[0]}`.trim();
-        } else {
-          // Different reps per set: "20kg - 8, 7, 6"
-          return `${weight} - ${exercise.repsPerSet.join(', ')}`.trim();
-        }
-      } else {
-        // Fallback to old format
-        const sets = exercise.sets || '?';
-        const reps = exercise.reps || '?';
-        return `${weight} - ${sets}x${reps}`.trim();
-      }
-    }
-  };
-
-  // If collapsed, show compact summary
-  if (!isExpanded) {
-    return (
-      <div 
-        ref={setNodeRef} 
-        style={style} 
-        className={`border rounded-lg bg-card/30 hover:bg-card/50 transition-all duration-200 hover:shadow-sm hover:border-border/70 group ${
-          isDragging ? 'opacity-50 shadow-lg scale-105' : ''
-        }`}
-      >
-        <div 
-          className="flex items-center justify-between p-4 cursor-pointer transition-all duration-200"
-          onClick={onToggleExpand}
-        >
-          <div className="flex items-center gap-3 flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <button
-                className="touch-none opacity-60 hover:opacity-100 transition-opacity duration-200 cursor-grab active:cursor-grabbing p-1 -ml-1"
-                {...attributes}
-                {...listeners}
-                onClick={(e) => e.stopPropagation()}
-                title="Drag to reorder"
-              >
-                <GripVertical className="h-4 w-4 text-muted-foreground" />
-              </button>
-              <Dumbbell className="h-4 w-4 text-muted-foreground flex-shrink-0 transition-colors duration-200 group-hover:text-primary" />
-              {exercise.weightsPerSet && exercise.weightsPerSet.length > 0 && (
-                <span className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded-full font-medium">⚖️</span>
-              )}
-              <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0 transition-transform duration-200 group-hover:translate-x-1" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="font-medium truncate transition-colors duration-200 group-hover:text-primary">
-                {exercise.name || 'Unnamed Exercise'}
-              </div>
-              <div className="text-sm text-muted-foreground transition-colors duration-200 group-hover:text-foreground/70">
-                {formatExerciseSummary()}
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 flex-shrink-0 opacity-60 group-hover:opacity-100 transition-opacity duration-200">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                onToggleExpand?.();
-              }}
-              className="px-2 interactive-scale hover:bg-primary/10 hover:text-primary transition-all duration-200"
-              title="Edit exercise"
-            >
-              <Edit3 className="h-4 w-4" />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete();
-              }}
-              className="px-2 text-destructive hover:text-destructive hover:bg-destructive/10 interactive-scale transition-all duration-200"
-              title="Delete exercise"
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Expanded view for editing
   return (
-    <div 
-      ref={setNodeRef} 
-      style={style} 
-      className={`border rounded-lg bg-card/50 overflow-hidden transition-all duration-300 shadow-sm hover:shadow-md border-border/70 hover:border-border ${
-        isDragging ? 'opacity-50 shadow-lg scale-105' : ''
-      }`}
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        'rounded-xl border transition-all duration-200',
+        isDragging && 'opacity-50 shadow-lg scale-[1.02]',
+        isExpanded
+          ? 'border-primary/20 bg-card/60 shadow-sm'
+          : 'border-border/40 bg-card/30 hover:bg-card/50 hover:border-border/60',
+      )}
     >
-      {/* Header with collapse button */}
-      <div className="flex items-center justify-between p-4 bg-muted/20 border-b transition-all duration-200 hover:bg-muted/30">
-        <div className="flex items-center gap-3">
-          <button
-            className="touch-none opacity-60 hover:opacity-100 transition-opacity duration-200 cursor-grab active:cursor-grabbing p-1 -ml-1"
-            {...attributes}
-            {...listeners}
-            title="Drag to reorder"
-          >
-            <GripVertical className="h-4 w-4 text-muted-foreground" />
-          </button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={onToggleExpand}
-            className="px-2 hover:bg-background/50 interactive-scale transition-all duration-200"
-          >
-            <ChevronDown className="h-4 w-4 transition-transform duration-200" />
-          </Button>
-          <div className="flex items-center gap-2">
-            <Dumbbell className="h-4 w-4 text-muted-foreground transition-colors duration-200 hover:text-primary" />
-            <span className="font-medium">
-              {exercise.name || 'Unnamed Exercise'}
-            </span>
-          </div>
-        </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={onDelete}
-          className="px-2 text-destructive hover:text-destructive hover:bg-destructive/10 interactive-scale transition-all duration-200"
-        >
-          <Trash2 className="h-4 w-4" />
-        </Button>
-      </div>
+      <Collapsible open={isExpanded} onOpenChange={() => onToggleExpand?.()}>
+        <CollapsibleTrigger asChild>
+          <div className="flex items-center gap-2.5 px-3 py-3 cursor-pointer select-none">
+            {/* Drag handle */}
+            <button
+              className="touch-none shrink-0 opacity-30 hover:opacity-70 cursor-grab active:cursor-grabbing p-0.5 -ml-0.5"
+              {...attributes}
+              {...listeners}
+              onClick={(e) => e.stopPropagation()}
+              title="Drag to reorder"
+            >
+              <GripVertical className="h-4 w-4 text-muted-foreground" />
+            </button>
 
-      <div className="p-4">
-        {/* Unified Layout - Works across all screen sizes */}
-        <div className="space-y-4">
-          {/* Exercise Name */}
-          <div>
+            {/* Exercise name */}
+            <span className="text-sm font-medium flex-1 truncate">
+              {exercise.name || 'New Exercise'}
+            </span>
+
+            {/* Summary badges */}
+            <div className="flex items-center gap-1 shrink-0">
+              {weightLabel && (
+                <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
+                  {weightLabel}
+                </span>
+              )}
+              {summaryLabel && (
+                <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">
+                  {summaryLabel}
+                </span>
+              )}
+            </div>
+
+            {/* Chevron */}
+            <ChevronDown className={cn(
+              'h-4 w-4 text-muted-foreground transition-transform duration-200 shrink-0',
+              isExpanded && 'rotate-180'
+            )} />
+          </div>
+        </CollapsibleTrigger>
+
+        <CollapsibleContent>
+          <div className="px-3 pb-3 pt-1 space-y-4 border-t border-border/30">
+            {/* Exercise name autocomplete */}
             <Autocomplete
               value={exercise.name}
               onChange={(value) => handleInputChange('name', value)}
               onSelect={handleExerciseSelect}
               placeholder="Exercise name"
-              className="transition-all duration-200 hover:border-border/70"
             />
-          </div>
 
-          {/* Weight Row */}
-          <div>
-            <WeightInputs 
-              exercise={exercise} 
-              onChange={onChange}
-            />
-            {exercise.weight === 'BW' && !exercise.weightsPerSet && (
-              <div className="text-sm text-muted-foreground mt-2 pl-1">Using bodyweight for this exercise</div>
+            {/* Weight */}
+            <div>
+              <span className="text-xs text-muted-foreground mb-1.5 block">Weight</span>
+              <WeightInputs exercise={exercise} onChange={onChange} />
+            </div>
+
+            {/* ER toggle */}
+            <div className="flex items-center justify-between py-1">
+              <Label htmlFor={`er-${exercise.id}`} className="text-xs text-muted-foreground cursor-pointer">
+                Effective Reps
+              </Label>
+              <Switch
+                id={`er-${exercise.id}`}
+                checked={exercise.useEffectiveReps}
+                onCheckedChange={toggleEffectiveReps}
+              />
+            </div>
+
+            {/* Sets & Reps or Effective Reps */}
+            {exercise.useEffectiveReps ? (
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <input
+                    type="number"
+                    placeholder="Max"
+                    value={exercise.effectiveRepsMax || ''}
+                    onChange={(e) => handleInputChange('effectiveRepsMax', parseInt(e.target.value) || undefined)}
+                    className="w-full px-3 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-10 transition-colors"
+                  />
+                  <span className="text-[10px] text-muted-foreground mt-1 block px-0.5">Max reps</span>
+                </div>
+                <div>
+                  <input
+                    type="number"
+                    placeholder="Target"
+                    value={exercise.effectiveRepsTarget || ''}
+                    onChange={(e) => handleInputChange('effectiveRepsTarget', parseInt(e.target.value) || undefined)}
+                    className="w-full px-3 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-10 transition-colors"
+                  />
+                  <span className="text-[10px] text-muted-foreground mt-1 block px-0.5">Target total</span>
+                </div>
+              </div>
+            ) : (
+              <SetsAndRepsInputs exercise={exercise} onChange={onChange} />
             )}
-          </div>
 
-          {/* Sets & Reps Row */}
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-sm font-medium text-muted-foreground">
-                {exercise.useEffectiveReps ? 'Effective Reps' : 'Sets & Reps'}
-              </span>
-              <Button
-                type="button"
-                variant={exercise.useEffectiveReps ? 'default' : 'outline'}
-                onClick={toggleEffectiveReps}
-                className="px-4 py-2 text-sm font-medium interactive-scale transition-all duration-200"
-                title="Toggle Effective Reps"
-              >
-                ER
-              </Button>
-            </div>
-            
-            <div className="grid grid-cols-2 gap-3">
-              {exercise.useEffectiveReps ? (
-                <>
-                  <div>
-                    <input
-                      type="number"
-                      placeholder="Max"
-                      title="Maximum reps in one go"
-                      value={exercise.effectiveRepsMax || ''}
-                      onChange={(e) => handleInputChange('effectiveRepsMax', parseInt(e.target.value) || undefined)}
-                      className="w-full px-4 py-3 text-base border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-12 transition-all duration-200 hover:border-border/70"
-                    />
-                    <div className="text-xs text-muted-foreground mt-1.5 px-1">Max reps</div>
-                  </div>
-                  <div>
-                    <input
-                      type="number"
-                      placeholder="Target"
-                      title="Target total with rest pauses"
-                      value={exercise.effectiveRepsTarget || ''}
-                      onChange={(e) => handleInputChange('effectiveRepsTarget', parseInt(e.target.value) || undefined)}
-                      className="w-full px-4 py-3 text-base border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-12 transition-all duration-200 hover:border-border/70"
-                    />
-                    <div className="text-xs text-muted-foreground mt-1.5 px-1">Target total</div>
-                  </div>
-                </>
-              ) : (
-                <SetsAndRepsInputs 
-                  exercise={exercise} 
-                  onChange={onChange}
-                />
-              )}
-            </div>
+            {/* Delete */}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onDelete}
+              className="w-full text-destructive hover:text-destructive hover:bg-destructive/5 hover:border-destructive/30 transition-colors"
+            >
+              <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+              Remove Exercise
+            </Button>
           </div>
-        </div>
-      </div>
+        </CollapsibleContent>
+      </Collapsible>
     </div>
   );
 }

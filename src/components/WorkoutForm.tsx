@@ -3,12 +3,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Workout, Exercise, WorkoutPreset, WorkoutType } from '@/types/workout';
 import { calculatePace, formatPace } from '@/lib/utils';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Drawer, DrawerContent } from '@/components/ui/drawer';
 import { ExerciseRow } from './ExerciseRow';
 import { useExerciseCache } from '@/hooks/useExerciseCache';
 import { PresetPicker } from './PresetPicker';
-import { Plus, X, AlertTriangle, Calendar, BookTemplate, Dumbbell, Footprints } from 'lucide-react';
+import { Plus, Calendar, BookTemplate, Dumbbell, Footprints, StickyNote, Check } from 'lucide-react';
 import {
   DndContext,
   closestCenter,
@@ -37,6 +37,7 @@ interface WorkoutFormProps {
 export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: WorkoutFormProps) {
   const [name, setName] = useState(workout?.name || initialPreset?.name || '');
   const [note, setNote] = useState(workout?.note || '');
+  const [showNote, setShowNote] = useState(!!(workout?.note));
   const [workoutDate, setWorkoutDate] = useState(workout?.date || new Date());
   const [workoutType, setWorkoutType] = useState<WorkoutType>(workout?.type || initialPreset?.type || 'strength');
   const [distanceKm, setDistanceKm] = useState(
@@ -59,69 +60,35 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
   const [showPresetPicker, setShowPresetPicker] = useState(false);
   const [availablePresets, setAvailablePresets] = useState<WorkoutPreset[]>([]);
   const [isLoadingPresets, setIsLoadingPresets] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
   const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 5, // Prevent accidental drags
-      },
-    }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    })
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
-  
 
   const initialExercises = workout?.exercises || (initialPreset?.exercises && initialPreset.exercises.length > 0
-    ? initialPreset.exercises.map(ex => ({
-        ...ex,
-        id: crypto.randomUUID(),
-      }))
+    ? initialPreset.exercises.map(ex => ({ ...ex, id: crypto.randomUUID() }))
     : null) || ((workout?.type || initialPreset?.type || 'strength') === 'run' ? [] : [
-    {
-      id: crypto.randomUUID(),
-      name: '',
-      weight: '',
-      useEffectiveReps: false,
-    }
+    { id: crypto.randomUUID(), name: '', weight: '', useEffectiveReps: false }
   ]);
-  
+
   const [exercises, setExercises] = useState<Exercise[]>(initialExercises);
   const { invalidateCache } = useExerciseCache();
-  
-  // Auto-expand the first exercise if it's a new workout
+
   const [expandedExerciseId, setExpandedExerciseId] = useState<string | null>(
     !workout && initialExercises.length > 0 ? initialExercises[0].id : null
   );
 
-  // Track unsaved changes and confirmation dialog
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [showDatePicker, setShowDatePicker] = useState(false);
   const [activeExerciseId, setActiveExerciseId] = useState<string | null>(null);
 
-  // Disable background scrolling when modal is open
-  useEffect(() => {
-    // Store original overflow style
-    const originalOverflow = document.body.style.overflow;
-    
-    // Disable scrolling
-    document.body.style.overflow = 'hidden';
-    
-    // Cleanup: restore original overflow on unmount
-    return () => {
-      document.body.style.overflow = originalOverflow;
-    };
-  }, []);
-
   // ----- Draft autosave (localStorage) -----
-  // Keyed by workout id for edits, or "new" for in-progress creation
   const draftStorageKey = `workout-ai-draft-${workout?.id ?? 'new'}`;
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const serverSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Check for unsaved changes - memoized for stable reference
   const checkForUnsavedChanges = useCallback(() => {
     if (workout) {
       if (name !== (workout.name || '')) return true;
@@ -167,33 +134,22 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
     }
   }, [exercises, name, note, workoutDate, workout, workoutType, distanceKm, durationMinutes, durationSeconds]);
 
-  // Load draft on mount (if present). If editing, it will use the workout id key; if creating, uses "new" key.
+  // Load draft on mount
   useEffect(() => {
     try {
       const raw = localStorage.getItem(draftStorageKey);
       if (raw) {
         const draft = JSON.parse(raw);
-        if (typeof draft?.name === 'string') {
-          setName(draft.name);
-        }
+        if (typeof draft?.name === 'string') setName(draft.name);
         if (typeof draft?.note === 'string') {
           setNote(draft.note);
+          if (draft.note) setShowNote(true);
         }
-        if (draft?.workoutDate) {
-          setWorkoutDate(new Date(draft.workoutDate));
-        }
-        if (draft?.workoutType === 'run' || draft?.workoutType === 'strength') {
-          setWorkoutType(draft.workoutType);
-        }
-        if (typeof draft?.distanceKm === 'string') {
-          setDistanceKm(draft.distanceKm);
-        }
-        if (typeof draft?.durationMinutes === 'string') {
-          setDurationMinutes(draft.durationMinutes);
-        }
-        if (typeof draft?.durationSeconds === 'string') {
-          setDurationSeconds(draft.durationSeconds);
-        }
+        if (draft?.workoutDate) setWorkoutDate(new Date(draft.workoutDate));
+        if (draft?.workoutType === 'run' || draft?.workoutType === 'strength') setWorkoutType(draft.workoutType);
+        if (typeof draft?.distanceKm === 'string') setDistanceKm(draft.distanceKm);
+        if (typeof draft?.durationMinutes === 'string') setDurationMinutes(draft.durationMinutes);
+        if (typeof draft?.durationSeconds === 'string') setDurationSeconds(draft.durationSeconds);
         if (Array.isArray(draft?.exercises)) {
           setExercises(draft.exercises);
           if (!workout && draft.exercises.length > 0 && draft.exercises[0]?.id) {
@@ -207,19 +163,13 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftStorageKey]);
 
-  // Persist draft with a small debounce on every change
+  // Persist draft with debounce
   useEffect(() => {
     const persist = () => {
       try {
         const draft = {
-          name,
-          note,
-          workoutDate: workoutDate.toISOString(),
-          workoutType,
-          distanceKm,
-          durationMinutes,
-          durationSeconds,
-          exercises,
+          name, note, workoutDate: workoutDate.toISOString(), workoutType,
+          distanceKm, durationMinutes, durationSeconds, exercises,
           updatedAt: new Date().toISOString(),
         };
         localStorage.setItem(draftStorageKey, JSON.stringify(draft));
@@ -227,64 +177,38 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
         console.warn('Failed to save workout draft:', e);
       }
     };
-
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-    }
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(persist, 400);
-
-    return () => {
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
-      }
-    };
+    return () => { if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current); };
   }, [name, note, workoutDate, workoutType, distanceKm, durationMinutes, durationSeconds, exercises, draftStorageKey]);
 
-  // Flush draft when the page becomes hidden (backgrounded)
+  // Flush draft when page becomes hidden
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'hidden') {
         try {
           const draft = {
-            name,
-            note,
-            workoutDate: workoutDate.toISOString(),
-            workoutType,
-            distanceKm,
-            durationMinutes,
-            durationSeconds,
-            exercises,
+            name, note, workoutDate: workoutDate.toISOString(), workoutType,
+            distanceKm, durationMinutes, durationSeconds, exercises,
             updatedAt: new Date().toISOString(),
           };
           localStorage.setItem(draftStorageKey, JSON.stringify(draft));
-        } catch (e) {
-          // noop
-        }
-        // Also flush server autosave if editing (use keepalive fetch)
+        } catch (_) {}
         if (workout?.id) {
           try {
             const totalSec = (parseInt(durationMinutes) || 0) * 60 + (parseInt(durationSeconds) || 0);
-            const payload = {
-              name: name || workout.name || undefined,
-              note: note.trim(),
-              date: workoutDate,
-              type: workoutType,
-              runData: workoutType === 'run' ? {
-                distanceKm: parseFloat(distanceKm) || 0,
-                durationSeconds: totalSec,
-              } : undefined,
-              exercises,
-            };
             fetch(`/api/workouts/${workout.id}`, {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload),
-              credentials: 'include',
-              keepalive: true,
+              body: JSON.stringify({
+                name: name || workout.name || undefined, note: note.trim(), date: workoutDate,
+                type: workoutType,
+                runData: workoutType === 'run' ? { distanceKm: parseFloat(distanceKm) || 0, durationSeconds: totalSec } : undefined,
+                exercises,
+              }),
+              credentials: 'include', keepalive: true,
             }).catch(() => {});
-          } catch (_) {
-            // noop
-          }
+          } catch (_) {}
         }
       }
     };
@@ -293,17 +217,12 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
   }, [name, note, workoutDate, workoutType, distanceKm, durationMinutes, durationSeconds, exercises, draftStorageKey, workout?.id, workout?.name]);
 
   const clearDraft = () => {
-    try {
-      localStorage.removeItem(draftStorageKey);
-    } catch (_) {
-      // noop
-    }
+    try { localStorage.removeItem(draftStorageKey); } catch (_) {}
   };
 
-  // Debounced server autosave when editing an existing workout
+  // Debounced server autosave when editing
   useEffect(() => {
     if (!workout?.id) return;
-
     const hasAnyContent = checkForUnsavedChanges();
     if (!hasAnyContent) return;
 
@@ -311,56 +230,36 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
       try {
         setIsSaving(true);
         const totalSec = (parseInt(durationMinutes) || 0) * 60 + (parseInt(durationSeconds) || 0);
-        const payload = {
-          name: name || workout.name || undefined,
-          note: note.trim(),
-          date: workoutDate,
-          type: workoutType,
-          runData: workoutType === 'run' ? {
-            distanceKm: parseFloat(distanceKm) || 0,
-            durationSeconds: totalSec,
-          } : undefined,
-          exercises,
-        };
         await fetch(`/api/workouts/${workout.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
+          body: JSON.stringify({
+            name: name || workout.name || undefined, note: note.trim(), date: workoutDate,
+            type: workoutType,
+            runData: workoutType === 'run' ? { distanceKm: parseFloat(distanceKm) || 0, durationSeconds: totalSec } : undefined,
+            exercises,
+          }),
           credentials: 'include',
         });
-      } catch (_) {
-        // silent failure; local draft still protects data
-      } finally {
-        // Show saving state briefly, then fade out
+      } catch (_) {} finally {
         setTimeout(() => setIsSaving(false), 500);
       }
     };
 
-    if (serverSaveTimeoutRef.current) {
-      clearTimeout(serverSaveTimeoutRef.current);
-    }
+    if (serverSaveTimeoutRef.current) clearTimeout(serverSaveTimeoutRef.current);
     serverSaveTimeoutRef.current = setTimeout(triggerServerSave, 1200);
-
-    return () => {
-      if (serverSaveTimeoutRef.current) {
-        clearTimeout(serverSaveTimeoutRef.current);
-      }
-    };
+    return () => { if (serverSaveTimeoutRef.current) clearTimeout(serverSaveTimeoutRef.current); };
   }, [name, note, workoutDate, workoutType, distanceKm, durationMinutes, durationSeconds, exercises, workout?.id, workout?.name, checkForUnsavedChanges]);
 
   useEffect(() => {
     setHasUnsavedChanges(checkForUnsavedChanges());
   }, [checkForUnsavedChanges]);
 
+  // --- Actions ---
+
   const addExercise = () => {
-    const newExercise: Exercise = {
-      id: crypto.randomUUID(),
-      name: '',
-      weight: '',
-      useEffectiveReps: false,
-    };
+    const newExercise: Exercise = { id: crypto.randomUUID(), name: '', weight: '', useEffectiveReps: false };
     setExercises([...exercises, newExercise]);
-    // Auto-expand the new exercise for immediate editing
     setExpandedExerciseId(newExercise.id);
   };
 
@@ -378,37 +277,29 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
     setExercises(exercises.filter((_, i) => i !== index));
   };
 
-  // Handle drag start event
   const handleDragStart = (event: DragStartEvent) => {
     setActiveExerciseId(event.active.id as string);
   };
 
-  // Handle drag end event to reorder exercises
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
-
     if (over && active.id !== over.id) {
-      const oldIndex = exercises.findIndex((exercise) => exercise.id === active.id);
-      const newIndex = exercises.findIndex((exercise) => exercise.id === over.id);
-
-      setExercises((exercises) => arrayMove(exercises, oldIndex, newIndex));
+      const oldIndex = exercises.findIndex((e) => e.id === active.id);
+      const newIndex = exercises.findIndex((e) => e.id === over.id);
+      setExercises((prev) => arrayMove(prev, oldIndex, newIndex));
     }
-    
     setActiveExerciseId(null);
   };
 
-
-
-  const handleCancel = async () => {
-    // Auto-save before closing if there are changes
+  // Bug #5: renamed handleCancel → handleClose for clarity
+  const handleClose = async () => {
     if (hasUnsavedChanges) {
       try {
         setIsSaving(true);
-        // Filter out empty exercises for saving
         const filteredExercises = exercises.filter(ex => ex.name.trim());
-        
         const totalSec = (parseInt(durationMinutes) || 0) * 60 + (parseInt(durationSeconds) || 0);
         const hasRunContent = workoutType === 'run' && (parseFloat(distanceKm) > 0 || totalSec > 0);
+
         if (filteredExercises.length > 0 || name.trim() || note.trim() || hasRunContent) {
           const workoutToSave: Workout = {
             id: workout?.id || crypto.randomUUID(),
@@ -416,85 +307,52 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
             note: note.trim(),
             date: workoutDate,
             type: workoutType,
-            runData: workoutType === 'run' ? {
-              distanceKm: parseFloat(distanceKm) || 0,
-              durationSeconds: totalSec,
-            } : undefined,
+            runData: workoutType === 'run' ? { distanceKm: parseFloat(distanceKm) || 0, durationSeconds: totalSec } : undefined,
             exercises: filteredExercises,
             createdAt: workout?.createdAt || new Date(),
             updatedAt: new Date(),
           };
 
-          // Auto-save the workout
+          clearDraft();
           await onSave(workoutToSave);
-          
-          // Track exercise patterns for autocomplete
+
           try {
             for (const exercise of filteredExercises) {
               await fetch('/api/exercises/track', {
                 method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   exerciseName: exercise.name,
                   exerciseData: {
-                    weight: exercise.weight,
-                    weightsPerSet: exercise.weightsPerSet,
-                    sets: exercise.sets,
-                    reps: exercise.reps,
-                    repsPerSet: exercise.repsPerSet,
+                    weight: exercise.weight, weightsPerSet: exercise.weightsPerSet,
+                    sets: exercise.sets, reps: exercise.reps, repsPerSet: exercise.repsPerSet,
                     useEffectiveReps: exercise.useEffectiveReps,
-                    effectiveRepsMax: exercise.effectiveRepsMax,
-                    effectiveRepsTarget: exercise.effectiveRepsTarget,
+                    effectiveRepsMax: exercise.effectiveRepsMax, effectiveRepsTarget: exercise.effectiveRepsTarget,
                   },
                 }),
               });
             }
           } catch (error) {
             console.error('Error tracking exercise patterns:', error);
-            // Don't fail the save if tracking fails
           }
-          
-          // Invalidate exercise cache so new patterns are immediately available
           invalidateCache();
         }
       } catch (error) {
         console.error('Auto-save failed:', error);
-        // If auto-save fails, show confirmation dialog as fallback
-        setIsSaving(false);
-        setShowConfirmDialog(true);
-        return;
       } finally {
         setIsSaving(false);
       }
     }
-    
-    // Clear any persisted draft on successful close
     clearDraft();
     onCancel();
-  };
-
-  const handleConfirmExit = () => {
-    setShowConfirmDialog(false);
-    // User chose to exit; clear draft to avoid stale data
-    clearDraft();
-    onCancel();
-  };
-
-  const handleCancelExit = () => {
-    setShowConfirmDialog(false);
   };
 
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedDate = new Date(e.target.value);
-    setWorkoutDate(selectedDate);
+    setWorkoutDate(new Date(e.target.value));
     setShowDatePicker(false);
   };
 
-  const formatDateForInput = (date: Date) => {
-    return date.toISOString().split('T')[0];
-  };
+  const formatDateForInput = (date: Date) => date.toISOString().split('T')[0];
 
   const handleOpenPresetPicker = async () => {
     setIsLoadingPresets(true);
@@ -504,11 +362,7 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
       if (response.ok) {
         const data = await response.json();
         setAvailablePresets(
-          data.presets.map((p: any) => ({
-            ...p,
-            createdAt: new Date(p.createdAt),
-            updatedAt: new Date(p.updatedAt),
-          }))
+          data.presets.map((p: any) => ({ ...p, createdAt: new Date(p.createdAt), updatedAt: new Date(p.updatedAt) }))
         );
       }
     } catch (error) {
@@ -533,218 +387,184 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
         : preset.type === 'run' ? [] : [{ id: crypto.randomUUID(), name: '', weight: '', useEffectiveReps: false }]
     );
     setShowPresetPicker(false);
-    if (preset.exercises.length > 0) {
+    if (preset.exercises.length > 0) setExpandedExerciseId(null);
+  };
+
+  const handleTypeChange = (type: WorkoutType) => {
+    setWorkoutType(type);
+    if (type === 'strength' && exercises.length === 0) {
+      const newEx: Exercise = { id: crypto.randomUUID(), name: '', weight: '', useEffectiveReps: false };
+      setExercises([newEx]);
+      setExpandedExerciseId(newEx.id);
+    }
+    if (type === 'run' && exercises.every(ex => !ex.name.trim())) {
+      setExercises([]);
       setExpandedExerciseId(null);
     }
   };
 
   return (
-    /* Modal Backdrop */
-    <div 
-      className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-backdrop-in"
-      onClick={handleCancel}
-    >
-      <Card 
-        className="w-full max-w-5xl mx-auto max-h-[90vh] overflow-y-auto animate-modal-in border-border/50 shadow-2xl shadow-black/25"
-        onClick={(e) => e.stopPropagation()} // Prevent backdrop click when clicking on the card
-      >
-        <CardHeader className="space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="flex-1">
+    <Drawer open={true} onOpenChange={(open) => { if (!open) handleClose(); }} handleOnly>
+      <DrawerContent className="h-[95dvh] max-h-[95dvh] flex flex-col">
+        {/* Header */}
+        <div className="shrink-0 border-b px-4 pb-3 pt-2">
+          <input
+            type="text"
+            placeholder="Workout Name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="text-xl font-bold bg-transparent border-none outline-none w-full placeholder:text-muted-foreground/40 focus:ring-0"
+          />
+
+          <div className="flex items-center gap-2 mt-2 flex-wrap">
+            {/* Date pill */}
+            {showDatePicker ? (
               <input
-                type="text"
-                placeholder="Workout name (optional)"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="text-lg font-semibold bg-transparent border-none outline-none focus:ring-0 placeholder:text-muted-foreground w-full"
+                type="date"
+                value={formatDateForInput(workoutDate)}
+                onChange={handleDateChange}
+                onBlur={() => setShowDatePicker(false)}
+                className="text-xs px-2.5 py-1 rounded-full border bg-background focus:outline-none focus:ring-2 focus:ring-primary/30"
+                autoFocus
               />
-              <div className="text-sm text-muted-foreground mt-1 relative">
-                {showDatePicker ? (
-                  <input
-                    type="date"
-                    value={formatDateForInput(workoutDate)}
-                    onChange={handleDateChange}
-                    onBlur={() => setShowDatePicker(false)}
-                    className="bg-background border border-border rounded px-2 py-1 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-                    autoFocus
-                  />
-                ) : (
-                  <button
-                    onClick={() => setShowDatePicker(true)}
-                    className="hover:text-primary transition-colors duration-200 cursor-pointer underline decoration-dotted underline-offset-2 flex items-center gap-1"
-                  >
-                    <Calendar className="h-3 w-3" />
-                    {workoutDate.toLocaleDateString()}
-                  </button>
-                )}
-              </div>
-              <textarea
-                placeholder="Workout note (optional)"
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                rows={2}
-                className="mt-3 w-full resize-none rounded-lg border border-border/60 bg-background/60 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
-              />
-              {/* Workout Type Toggle */}
-              <div className="flex gap-2 mt-3">
-                <Button
-                  type="button"
-                  variant={workoutType === 'strength' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => {
-                    setWorkoutType('strength');
-                    // Add a default exercise if switching to strength with none
-                    if (exercises.length === 0) {
-                      const newEx: Exercise = { id: crypto.randomUUID(), name: '', weight: '', useEffectiveReps: false };
-                      setExercises([newEx]);
-                      setExpandedExerciseId(newEx.id);
-                    }
-                  }}
-                  className="flex items-center gap-1.5"
-                >
-                  <Dumbbell className="h-3.5 w-3.5" />
-                  Strength
-                </Button>
-                <Button
-                  type="button"
-                  variant={workoutType === 'run' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => {
-                    setWorkoutType('run');
-                    // Clear default empty exercises when switching to run
-                    if (exercises.every(ex => !ex.name.trim())) {
-                      setExercises([]);
-                      setExpandedExerciseId(null);
-                    }
-                  }}
-                  className="flex items-center gap-1.5"
-                >
-                  <Footprints className="h-3.5 w-3.5" />
-                  Run
-                </Button>
-              </div>
-            </div>
-            <div className="flex gap-2 items-center">
-              <div className="text-xs text-muted-foreground mr-2 flex items-center gap-1">
-                {isSaving ? (
-                  <>
-                    <div className="w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
-                    Saving...
-                  </>
-                ) : (
-                  "Changes are saved automatically"
-                )}
-              </div>
-              {!workout && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleOpenPresetPicker}
-                  className="flex items-center gap-2 interactive-scale hover:bg-primary/5 hover:border-primary/30 hover:text-primary transition-all duration-200"
-                  title="Load from preset"
-                >
-                  <BookTemplate className="h-4 w-4" />
-                  <span className="hidden sm:inline">Preset</span>
-                </Button>
-              )}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleCancel}
-                className="flex items-center gap-2 interactive-scale hover:bg-primary/5 hover:border-primary/30 hover:text-primary transition-all duration-200"
+            ) : (
+              <button
+                onClick={() => setShowDatePicker(true)}
+                className="text-xs px-2.5 py-1 rounded-full bg-muted hover:bg-muted/80 text-muted-foreground flex items-center gap-1 transition-colors"
               >
-                <X className="h-4 w-4" />
-                <span className="hidden sm:inline">Done</span>
-              </Button>
+                <Calendar className="h-3 w-3" />
+                {workoutDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+              </button>
+            )}
+
+            {/* Type toggle pills */}
+            <div className="flex rounded-full border overflow-hidden">
+              <button
+                onClick={() => handleTypeChange('strength')}
+                className={`text-xs px-3 py-1 flex items-center gap-1 transition-colors ${
+                  workoutType === 'strength' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'
+                }`}
+              >
+                <Dumbbell className="h-3 w-3" />
+                Strength
+              </button>
+              <button
+                onClick={() => handleTypeChange('run')}
+                className={`text-xs px-3 py-1 flex items-center gap-1 transition-colors ${
+                  workoutType === 'run' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'
+                }`}
+              >
+                <Footprints className="h-3 w-3" />
+                Run
+              </button>
             </div>
+
+            {/* Note toggle */}
+            {!showNote && (
+              <button
+                onClick={() => setShowNote(true)}
+                className="text-xs px-2.5 py-1 rounded-full bg-muted hover:bg-muted/80 text-muted-foreground flex items-center gap-1 transition-colors"
+              >
+                <StickyNote className="h-3 w-3" />
+                Note
+              </button>
+            )}
+
+            <div className="flex-1" />
+
+            {/* Save status */}
+            <span className="text-[11px] text-muted-foreground/60 flex items-center gap-1">
+              {isSaving ? (
+                <>
+                  <div className="w-2.5 h-2.5 border-[1.5px] border-primary border-t-transparent rounded-full animate-spin" />
+                  Saving
+                </>
+              ) : (
+                <>
+                  <Check className="h-3 w-3" />
+                  Saved
+                </>
+              )}
+            </span>
           </div>
-        </CardHeader>
-        
-        <CardContent className="space-y-6">
-          {/* Run Data Section */}
+
+          {/* Note textarea */}
+          {showNote && (
+            <textarea
+              placeholder="Add a note..."
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              rows={2}
+              className="mt-2 w-full resize-none rounded-lg border border-border/40 bg-muted/30 px-3 py-2 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
+              autoFocus
+            />
+          )}
+        </div>
+
+        {/* Scrollable content */}
+        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+          {/* Run data */}
           {workoutType === 'run' && (
-            <div className="border rounded-lg p-4 bg-card/30 space-y-4">
-              <div className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                <Footprints className="h-4 w-4" />
+            <div className="rounded-xl border border-border/40 bg-muted/20 p-3.5 space-y-3">
+              <div className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                <Footprints className="h-3.5 w-3.5" />
                 Run Details
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-3 gap-2">
                 <div>
                   <input
                     type="number"
                     step="0.01"
                     min="0"
-                    placeholder="Distance"
+                    placeholder="0.00"
                     value={distanceKm}
                     onChange={(e) => setDistanceKm(e.target.value)}
-                    className="w-full px-4 py-3 text-base border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-12"
+                    className="w-full px-3 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-10 transition-colors"
                   />
-                  <div className="text-xs text-muted-foreground mt-1.5 px-1">Distance (km)</div>
+                  <span className="text-[10px] text-muted-foreground mt-1 block px-0.5">Distance (km)</span>
                 </div>
-                <div className="flex gap-2">
-                  <div className="flex-1">
-                    <input
-                      type="number"
-                      min="0"
-                      placeholder="Min"
-                      value={durationMinutes}
-                      onChange={(e) => setDurationMinutes(e.target.value)}
-                      className="w-full px-4 py-3 text-base border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-12"
-                    />
-                    <div className="text-xs text-muted-foreground mt-1.5 px-1">Min</div>
-                  </div>
-                  <div className="flex-1">
-                    <input
-                      type="number"
-                      min="0"
-                      max="59"
-                      placeholder="Sec"
-                      value={durationSeconds}
-                      onChange={(e) => setDurationSeconds(e.target.value)}
-                      className="w-full px-4 py-3 text-base border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-12"
-                    />
-                    <div className="text-xs text-muted-foreground mt-1.5 px-1">Sec</div>
-                  </div>
+                <div>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="0"
+                    value={durationMinutes}
+                    onChange={(e) => setDurationMinutes(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-10 transition-colors"
+                  />
+                  <span className="text-[10px] text-muted-foreground mt-1 block px-0.5">Minutes</span>
+                </div>
+                <div>
+                  <input
+                    type="number"
+                    min="0"
+                    max="59"
+                    placeholder="0"
+                    value={durationSeconds}
+                    onChange={(e) => setDurationSeconds(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-10 transition-colors"
+                  />
+                  <span className="text-[10px] text-muted-foreground mt-1 block px-0.5">Seconds</span>
                 </div>
               </div>
               {(() => {
-                const parsedDist = parseFloat(distanceKm);
-                const parsedSec = (parseInt(durationMinutes) || 0) * 60 + (parseInt(durationSeconds) || 0);
-                const pace = calculatePace(parsedDist, parsedSec);
+                const pace = calculatePace(parseFloat(distanceKm), (parseInt(durationMinutes) || 0) * 60 + (parseInt(durationSeconds) || 0));
                 return pace ? (
-                  <div className="text-sm text-primary font-medium">
-                    Pace: {formatPace(pace)}
-                  </div>
+                  <div className="text-xs text-primary font-medium">Pace: {formatPace(pace)}</div>
                 ) : null;
               })()}
             </div>
           )}
 
-          {/* Header Row - Only for very large screens */}
-          <div className="hidden 2xl:grid grid-cols-12 gap-3 text-sm font-medium text-muted-foreground px-4 pb-2 border-b">
-            <div className="col-span-5">Exercise</div>
-            <div className="col-span-2">Weight</div>
-            <div className="col-span-3">Sets & Reps / Effective Reps</div>
-            <div className="col-span-2 text-right">Actions</div>
-          </div>
-
-          {/* Exercise Rows */}
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragStart={handleDragStart}
-            onDragEnd={handleDragEnd}
-          >
-            <SortableContext
-              items={exercises.map(exercise => exercise.id)}
-              strategy={verticalListSortingStrategy}
-            >
-              <div className="space-y-3">
+          {/* Exercise list */}
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+            <SortableContext items={exercises.map(e => e.id)} strategy={verticalListSortingStrategy}>
+              <div className="space-y-2">
                 {exercises.map((exercise, index) => (
                   <ExerciseRow
                     key={exercise.id}
                     exercise={exercise}
-                    onChange={(updatedExercise) => updateExercise(index, updatedExercise)}
+                    onChange={(updated) => updateExercise(index, updated)}
                     onDelete={() => deleteExercise(index)}
                     isExpanded={expandedExerciseId === exercise.id}
                     onToggleExpand={() => toggleExerciseExpanded(exercise.id)}
@@ -752,43 +572,47 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
                 ))}
               </div>
             </SortableContext>
-            
             <DragOverlay>
               {activeExerciseId ? (
-                <div className="transform rotate-6 opacity-95">
+                <div className="transform rotate-3 opacity-90">
                   <ExerciseRow
                     exercise={exercises.find(ex => ex.id === activeExerciseId)!}
-                    onChange={() => {}} // No-op for overlay
-                    onDelete={() => {}} // No-op for overlay
-                    isExpanded={expandedExerciseId === activeExerciseId}
-                    onToggleExpand={() => {}} // No-op for overlay
+                    onChange={() => {}}
+                    onDelete={() => {}}
+                    isExpanded={false}
+                    onToggleExpand={() => {}}
                   />
                 </div>
               ) : null}
             </DragOverlay>
           </DndContext>
 
-          {/* Add Exercise Button */}
-          <div className="text-center">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={addExercise}
-              className="w-full border-dashed py-6 text-base hover:bg-primary/5 hover:border-primary/30 hover:text-primary transition-all duration-200 interactive-scale group"
-            >
-              <Plus className="h-5 w-5 mr-2 transition-transform duration-200 group-hover:rotate-90" />
-              {workoutType === 'run' && exercises.length === 0 ? 'Add Strength Exercises (Optional)' : 'Add Exercise'}
-            </Button>
-            {exercises.length > 1 && (
-              <p className="text-xs text-muted-foreground mt-2">
-                💡 Click to expand • Drag ⋮⋮ to reorder exercises
-              </p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+          {/* Empty state for exercises */}
+          {exercises.length === 0 && workoutType === 'strength' && (
+            <div className="text-center py-8 text-muted-foreground/60">
+              <Dumbbell className="h-8 w-8 mx-auto mb-2 opacity-40" />
+              <p className="text-sm">No exercises yet</p>
+            </div>
+          )}
+        </div>
 
-      {/* Confirmation Dialog */}
+        {/* Bottom action bar */}
+        <div className="shrink-0 border-t bg-background px-4 py-3 flex items-center gap-2 safe-area-bottom">
+          <Button variant="outline" onClick={addExercise} className="flex-1 h-10">
+            <Plus className="h-4 w-4 mr-1.5" />
+            {workoutType === 'run' && exercises.length === 0 ? 'Add Exercises' : 'Add Exercise'}
+          </Button>
+          {!workout && (
+            <Button variant="outline" size="icon" onClick={handleOpenPresetPicker} className="h-10 w-10 shrink-0">
+              <BookTemplate className="h-4 w-4" />
+            </Button>
+          )}
+          <Button onClick={handleClose} className="px-6 h-10 shrink-0">
+            Done
+          </Button>
+        </div>
+      </DrawerContent>
+
       {/* Preset Picker */}
       <PresetPicker
         presets={availablePresets}
@@ -797,54 +621,6 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
         onSelect={handleSelectPreset}
         onClose={() => setShowPresetPicker(false)}
       />
-
-      {showConfirmDialog && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-backdrop-in" onClick={handleCancelExit}>
-          <Card className="w-full max-w-md mx-auto animate-modal-in border-border/50 shadow-2xl shadow-black/25" onClick={(e) => e.stopPropagation()}>
-            <CardHeader className="pb-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-amber-500/10 rounded-full">
-                    <AlertTriangle className="h-5 w-5 text-amber-500" />
-                  </div>
-                  <CardTitle className="text-lg">Save Failed</CardTitle>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleCancelExit}
-                  className="h-8 w-8 p-0 interactive-scale"
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-            </CardHeader>
-            
-            <CardContent className="space-y-4">
-              <div className="text-sm text-muted-foreground">
-                Unable to auto-save your changes. Would you like to try again or exit without saving?
-              </div>
-              
-              <div className="flex flex-col-reverse sm:flex-row gap-2 sm:gap-3 pt-2">
-                <Button
-                  variant="outline"
-                  onClick={handleCancelExit}
-                  className="flex-1 interactive-scale hover:bg-primary/5 hover:border-primary/30 hover:text-primary transition-all duration-200"
-                >
-                  Try Again
-                </Button>
-                <Button
-                  variant="destructive"
-                  onClick={handleConfirmExit}
-                  className="flex-1 interactive-scale hover:shadow-lg hover:shadow-destructive/25 transition-all duration-200"
-                >
-                  Exit Without Saving
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-    </div>
+    </Drawer>
   );
 }
