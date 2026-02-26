@@ -5,6 +5,7 @@ import {
   getUserById,
   getUserWorkouts,
   getUserMealsByDate,
+  getUserMealsForDateRange,
   getMacroGoal,
   getChatMessages,
   saveChatMessage,
@@ -256,6 +257,38 @@ function formatMealsForContext(meals: any[]): string {
   return `${mealLines.join('\n')}\n  Total so far: ${totals.calories} cal, ${totals.protein}g protein, ${totals.carbs}g carbs, ${totals.fat}g fat`;
 }
 
+function formatMealHistoryForContext(
+  mealDays: { date: string; meals: any[] }[],
+  todayKey: string
+): string {
+  // Exclude today — that's shown separately as "Today's meals"
+  const historyDays = mealDays.filter((d) => d.date !== todayKey);
+  if (historyDays.length === 0) return 'No meal history in the past 2 weeks.';
+
+  const lines = historyDays.map((day) => {
+    const dateLabel = new Date(day.date + 'T00:00:00').toLocaleDateString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+    });
+    const totals = day.meals.reduce(
+      (acc, m) => ({
+        calories: acc.calories + m.macros.calories,
+        protein: acc.protein + m.macros.protein,
+        carbs: acc.carbs + m.macros.carbs,
+        fat: acc.fat + m.macros.fat,
+      }),
+      { calories: 0, protein: 0, carbs: 0, fat: 0 }
+    );
+    const mealList = day.meals
+      .map((m: any) => `${m.category}: ${m.description} (${m.macros.calories} cal, ${m.macros.protein}g P)`)
+      .join('; ');
+    return `${dateLabel} — ${totals.calories} cal, ${totals.protein}g P, ${totals.carbs}g C, ${totals.fat}g F [${mealList}]`;
+  });
+
+  return lines.join('\n');
+}
+
 function formatGoalForContext(goal: any): string {
   if (!goal) return 'No macro goals set.';
   return `Goal: ${goal.goalType} - ${goal.calories} cal, ${goal.protein}g protein, ${goal.carbs}g carbs, ${goal.fat}g fat daily`;
@@ -404,11 +437,16 @@ export async function POST(request: NextRequest) {
       timeZone: 'UTC',
     });
 
-    const [dbMessages, userProfile, workouts, todayMeals, macroGoal] = await Promise.all([
+    const twoWeeksAgo = new Date(now);
+    twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
+    const twoWeeksAgoKey = twoWeeksAgo.toISOString().split('T')[0];
+
+    const [dbMessages, userProfile, workouts, todayMeals, mealHistory, macroGoal] = await Promise.all([
       getChatMessages(conversationId, 50),
       getUserById(session.userId),
       getUserWorkouts(session.userId),
       getUserMealsByDate(session.userId, todayKey),
+      getUserMealsForDateRange(session.userId, twoWeeksAgoKey, todayKey),
       getMacroGoal(session.userId),
     ]);
 
@@ -425,6 +463,7 @@ export async function POST(request: NextRequest) {
     const userProfileContext = formatUserProfileForContext(userProfile, macroGoal);
     const workoutContext = formatWorkoutsForContext(workouts);
     const mealContext = formatMealsForContext(todayMeals);
+    const mealHistoryContext = formatMealHistoryForContext(mealHistory, todayKey);
     const goalContext = formatGoalForContext(macroGoal);
 
     const chatHistory = dbMessages.map((m) => ({
@@ -438,7 +477,7 @@ export async function POST(request: NextRequest) {
       messageCount: chatHistory.length,
     };
 
-    const systemMessage = `You are a knowledgeable fitness and workout assistant for ${session.name}. You have access to their profile metrics (age, weight, height, sex, activity level), their complete workout history (including workout notes), today's meals, and their nutrition goals. You can provide advice on training, form, programming, recovery, and nutrition.
+    const systemMessage = `You are a knowledgeable fitness and workout assistant for ${session.name}. You have access to their profile metrics (age, weight, height, sex, activity level), their complete workout history (including workout notes), today's meals, the past 2 weeks of meal history, and their nutrition goals. You can provide advice on training, form, programming, recovery, and nutrition.
 
 Current date context: ${currentDateUtcLong} (UTC date key: ${todayKey}, UTC timestamp: ${currentDateUtcIso}). Use this to reason about recency and interpret terms like today, yesterday, and last workout.
 Unit rules: bodyweight in the user profile is stored in pounds (lb). Workout exercise loads are stored in kilograms (kg), unless marked as Bodyweight/BW. Keep those units accurate in responses.
@@ -452,9 +491,12 @@ ${workoutContext}
 Today's meals:
 ${mealContext}
 
+Meal history (past 2 weeks, each line is one day with daily totals and individual meals):
+${mealHistoryContext}
+
 ${goalContext}
 
-Be concise, friendly, and helpful. Reference specific workouts, meals, and goals when relevant. If they ask about progress, analyze trends in their data. If they ask about nutrition, factor in their goal type and remaining macros for the day. Keep responses focused and practical.
+Be concise, friendly, and helpful. Reference specific workouts, meals, and goals when relevant. If they ask about progress, analyze trends in their data. If they ask about nutrition, factor in their goal type, remaining macros for the day, and recent eating patterns from the meal history. Keep responses focused and practical.
 
 Formatting rules: You may use Markdown for structure. Use **bold** for emphasis, headings (##, ###) for sections, bullet points and numbered lists where helpful. Keep formatting clean and not excessive.`;
 
