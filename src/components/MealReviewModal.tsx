@@ -5,7 +5,8 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Macros, MealItem, MealCategory, MEAL_CATEGORIES } from '@/types/meal';
-import { X, Loader2, Send, Sparkles, Pencil, Save, ChevronDown, Bookmark, Check } from 'lucide-react';
+import { X, Loader2, Send, Sparkles, Pencil, Save, ChevronDown, Bookmark, Check, Clock } from 'lucide-react';
+import { getCategoryForTime, timeToInputValue, inputValueToDate } from '@/lib/mealUtils';
 
 interface RefinementMessage {
   role: 'user' | 'assistant';
@@ -19,7 +20,7 @@ interface MealReviewModalProps {
   items?: MealItem[];
   category: MealCategory;
   analysisContext?: string;
-  onConfirm: (description: string, macros: Macros, category: MealCategory) => void;
+  onConfirm: (description: string, macros: Macros, category: MealCategory, createdAt: Date) => void;
   isSaving?: boolean;
   onCancel: () => void;
 }
@@ -38,6 +39,7 @@ export function MealReviewModal({
   const [macros, setMacros] = useState<Macros>(initialMacros);
   const [items, setItems] = useState<MealItem[] | undefined>(initialItems);
   const [category, setCategory] = useState<MealCategory>(initialCategory);
+  const [mealTime, setMealTime] = useState<string>(timeToInputValue(new Date()));
   const [refinementText, setRefinementText] = useState('');
   const [isRefining, setIsRefining] = useState(false);
   const [messages, setMessages] = useState<RefinementMessage[]>([]);
@@ -137,6 +139,12 @@ export function MealReviewModal({
     } finally {
       setIsSavingToBank(false);
     }
+  };
+
+  const handleTimeChange = (timeStr: string) => {
+    setMealTime(timeStr);
+    const date = inputValueToDate(timeStr, new Date());
+    setCategory(getCategoryForTime(date));
   };
 
   const updateMacro = (field: keyof Macros, value: string) => {
@@ -286,21 +294,33 @@ export function MealReviewModal({
             </div>
           )}
 
-          {/* Category Selector */}
-          <div className="flex gap-1.5">
-            {MEAL_CATEGORIES.map((cat) => (
-              <button
-                key={cat.key}
-                onClick={() => setCategory(cat.key)}
-                className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                  category === cat.key
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-muted/50 text-muted-foreground hover:bg-muted'
-                }`}
-              >
-                {cat.label}
-              </button>
-            ))}
+          {/* Time Picker + Category Selector */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Clock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <input
+                type="time"
+                value={mealTime}
+                onChange={(e) => handleTimeChange(e.target.value)}
+                className="h-8 rounded-md border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              />
+              <span className="text-xs text-muted-foreground">Meal time</span>
+            </div>
+            <div className="flex gap-1.5">
+              {MEAL_CATEGORIES.map((cat) => (
+                <button
+                  key={cat.key}
+                  onClick={() => setCategory(cat.key)}
+                  className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                    category === cat.key
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-muted/50 text-muted-foreground hover:bg-muted'
+                  }`}
+                >
+                  {cat.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Refinement Chat */}
@@ -417,7 +437,7 @@ export function MealReviewModal({
               Cancel
             </Button>
             <Button
-              onClick={() => onConfirm(description, macros, category)}
+              onClick={() => onConfirm(description, macros, category, inputValueToDate(mealTime, new Date()))}
               disabled={isRefining || isSaving || isSavingToBank}
               className="interactive-scale"
             >
@@ -436,7 +456,7 @@ export function MealReviewModal({
           </div>
 
           <div className="text-center text-[11px] text-muted-foreground">
-            Category: {categoryLabel}
+            {categoryLabel} at {new Date(`2000-01-01T${mealTime}`).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
           </div>
         </CardContent>
       </Card>

@@ -8,6 +8,7 @@ import { MealCard } from '@/components/MealCard';
 import { MealReviewModal } from '@/components/MealReviewModal';
 import { Meal, Macros, MealItem, MacroGoal, MealCategory, MEAL_CATEGORIES, SavedMeal } from '@/types/meal';
 import { FoodBankPicker } from '@/components/FoodBankPicker';
+import { getCategoryForTime } from '@/lib/mealUtils';
 
 function formatDateKey(date: Date): string {
   return date.toISOString().split('T')[0];
@@ -56,10 +57,10 @@ export function MealTracker() {
   // Input state
   const [mealDescription, setMealDescription] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [quickAddCategory, setQuickAddCategory] = useState<MealCategory>('breakfast');
+  const [quickAddCategory, setQuickAddCategory] = useState<MealCategory>(() => getCategoryForTime(new Date()));
 
   // Review modal state
-  const [pendingCategory, setPendingCategory] = useState<MealCategory>('breakfast');
+  const [pendingCategory, setPendingCategory] = useState<MealCategory>(() => getCategoryForTime(new Date()));
   const [reviewData, setReviewData] = useState<{
     description: string;
     macros: Macros;
@@ -158,7 +159,7 @@ export function MealTracker() {
 
   const handleSelectFromBank = async (meal: SavedMeal, category: MealCategory) => {
     setIsFoodBankOpen(false);
-    await handleConfirmMeal(meal.description, meal.macros, category);
+    await handleConfirmMeal(meal.description, meal.macros, category, new Date());
   };
 
   const updateSavedMealsCache = (meals: SavedMeal[]) => {
@@ -259,7 +260,7 @@ export function MealTracker() {
     }
   };
 
-  const handleConfirmMeal = async (description: string, macros: Macros, category: MealCategory) => {
+  const handleConfirmMeal = async (description: string, macros: Macros, category: MealCategory, createdAt?: Date) => {
     setIsSavingMeal(true);
     setError(null);
 
@@ -270,6 +271,7 @@ export function MealTracker() {
         macros,
         category,
         date: formatDateKey(selectedDate),
+        createdAt: (createdAt || new Date()).toISOString(),
       };
 
       const saveRes = await fetch('/api/meals', {
@@ -321,6 +323,31 @@ export function MealTracker() {
       }
     } catch (err) {
       console.error('Failed to delete meal:', err);
+    }
+  };
+
+  const handleUpdateMealTime = async (mealId: string, newTime: Date, newCategory: MealCategory) => {
+    try {
+      const res = await fetch(`/api/meals/${mealId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          createdAt: newTime.toISOString(),
+          category: newCategory,
+        }),
+      });
+      if (res.ok) {
+        const { meal: updated } = await res.json();
+        setMeals((prev) =>
+          prev.map((m) =>
+            m.id === mealId
+              ? { ...m, createdAt: new Date(updated.createdAt), category: updated.category }
+              : m
+          )
+        );
+      }
+    } catch (err) {
+      console.error('Failed to update meal time:', err);
     }
   };
 
@@ -584,7 +611,7 @@ export function MealTracker() {
                 {categoryMeals.length > 0 ? (
                   <div className="space-y-2">
                     {categoryMeals.map((meal) => (
-                      <MealCard key={meal.id} meal={meal} onDelete={handleDeleteMeal} />
+                      <MealCard key={meal.id} meal={meal} onDelete={handleDeleteMeal} onUpdateTime={handleUpdateMealTime} />
                     ))}
                   </div>
                 ) : (

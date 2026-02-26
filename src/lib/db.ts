@@ -914,15 +914,16 @@ export async function getNextSplitPreset(userId: string): Promise<SplitReminder>
 // Create a new meal
 export async function createMeal(
   userId: string,
-  meal: { id: string; description: string; macros: Macros; category: MealCategory; imageUrl?: string; date: string }
+  meal: { id: string; description: string; macros: Macros; category: MealCategory; imageUrl?: string; date: string; createdAt?: string }
 ): Promise<Meal | null> {
   try {
+    const createdAtValue = meal.createdAt || new Date().toISOString();
     const result = await sql`
-      INSERT INTO meals (id, user_id, description, calories, protein, carbs, fat, meal_category, image_url, date)
+      INSERT INTO meals (id, user_id, description, calories, protein, carbs, fat, meal_category, image_url, date, created_at)
       VALUES (
         ${meal.id}, ${userId}, ${meal.description},
         ${meal.macros.calories}, ${meal.macros.protein}, ${meal.macros.carbs}, ${meal.macros.fat},
-        ${meal.category}, ${meal.imageUrl || null}, ${meal.date}
+        ${meal.category}, ${meal.imageUrl || null}, ${meal.date}, ${createdAtValue}
       )
       RETURNING id, description, calories, protein, carbs, fat, meal_category, image_url, date, created_at;
     `;
@@ -995,6 +996,43 @@ export async function deleteMeal(userId: string, mealId: string): Promise<boolea
   } catch (error) {
     console.error('Error deleting meal:', error);
     return false;
+  }
+}
+
+// Update meal time and category
+export async function updateMealTime(
+  userId: string,
+  mealId: string,
+  createdAt: string,
+  category: MealCategory
+): Promise<Meal | null> {
+  try {
+    const result = await sql`
+      UPDATE meals
+      SET created_at = ${createdAt}, meal_category = ${category}
+      WHERE id = ${mealId} AND user_id = ${userId}
+      RETURNING id, description, calories, protein, carbs, fat, meal_category, image_url, date, created_at;
+    `;
+
+    if (result.rows.length === 0) return null;
+
+    const row = result.rows[0];
+    return {
+      id: row.id,
+      description: row.description,
+      macros: {
+        calories: Number(row.calories),
+        protein: Number(row.protein),
+        carbs: Number(row.carbs),
+        fat: Number(row.fat),
+      },
+      category: row.meal_category,
+      imageUrl: row.image_url,
+      createdAt: new Date(row.created_at),
+    };
+  } catch (error) {
+    console.error('Error updating meal time:', error);
+    return null;
   }
 }
 

@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { id, description, macros, category, imageUrl, date } = body;
+    const { id, description, macros, category, imageUrl, date, createdAt } = body;
 
     if (!id || !description || !macros || !category || !date) {
       return NextResponse.json(
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const meal = await createMeal(session.userId, { id, description, macros, category, imageUrl, date });
+    const meal = await createMeal(session.userId, { id, description, macros, category, imageUrl, date, createdAt });
 
     if (!meal) {
       return NextResponse.json({ error: 'Failed to create meal' }, { status: 500 });
