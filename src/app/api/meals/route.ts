@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSessionFromCookie } from '@/lib/auth';
 import { createMeal, getUserMealsByDate, initDatabase } from '@/lib/db';
+import { runFoodSuggestionAgent } from '@/lib/agents/foodSuggestionAgent';
 
 // GET /api/meals?date=YYYY-MM-DD - Get meals for a specific date
 export async function GET(request: NextRequest) {
@@ -62,6 +63,11 @@ export async function POST(request: NextRequest) {
     if (!meal) {
       return NextResponse.json({ error: 'Failed to create meal' }, { status: 500 });
     }
+
+    // Fire-and-forget: trigger food suggestion agent in the background
+    runFoodSuggestionAgent(session.userId).catch((err) =>
+      console.error('Food suggestion agent error:', err)
+    );
 
     return NextResponse.json({ meal });
   } catch (error) {

@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { MealCard } from '@/components/MealCard';
 import { MealReviewModal } from '@/components/MealReviewModal';
-import { Meal, Macros, MealItem, MacroGoal, MealCategory, MEAL_CATEGORIES, SavedMeal } from '@/types/meal';
+import { Meal, Macros, MealItem, MacroGoal, MealCategory, MEAL_CATEGORIES, SavedMeal, FoodSuggestion } from '@/types/meal';
 import { FoodBankPicker } from '@/components/FoodBankPicker';
 import { getCategoryForTime } from '@/lib/mealUtils';
 
@@ -72,6 +72,9 @@ export function MealTracker() {
   const [savedMeals, setSavedMeals] = useState<SavedMeal[]>([]);
   const [isFoodBankOpen, setIsFoodBankOpen] = useState(false);
   const [isLoadingSavedMeals, setIsLoadingSavedMeals] = useState(false);
+
+  // Food suggestions state
+  const [suggestions, setSuggestions] = useState<FoodSuggestion[]>([]);
 
   const loadGoal = useCallback(async () => {
     // Show cached goal instantly
@@ -153,9 +156,22 @@ export function MealTracker() {
     }
   }, []);
 
+  const loadSuggestions = useCallback(async () => {
+    try {
+      const res = await fetch('/api/meals/suggestions');
+      if (res.ok) {
+        const data = await res.json();
+        setSuggestions(data.suggestions || []);
+      }
+    } catch (err) {
+      console.error('Failed to load food suggestions:', err);
+    }
+  }, []);
+
   useEffect(() => {
     loadSavedMeals();
-  }, [loadSavedMeals]);
+    loadSuggestions();
+  }, [loadSavedMeals, loadSuggestions]);
 
   const handleSelectFromBank = async (meal: SavedMeal, category: MealCategory) => {
     setIsFoodBankOpen(false);
@@ -189,6 +205,38 @@ export function MealTracker() {
     const updated = [...savedMeals, meal];
     setSavedMeals(updated);
     updateSavedMealsCache(updated);
+  };
+
+  const handleAcceptSuggestion = async (suggestion: FoodSuggestion, editedData: { name: string; description: string; macros: Macros }) => {
+    try {
+      const res = await fetch(`/api/meals/suggestions/${suggestion.id}/accept`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editedData),
+      });
+      if (res.ok) {
+        const { savedMeal } = await res.json();
+        const newSaved = [...savedMeals, { ...savedMeal, createdAt: new Date(savedMeal.createdAt) }];
+        setSavedMeals(newSaved);
+        updateSavedMealsCache(newSaved);
+        setSuggestions((prev) => prev.filter((s) => s.id !== suggestion.id));
+      }
+    } catch (err) {
+      console.error('Failed to accept suggestion:', err);
+    }
+  };
+
+  const handleDismissSuggestion = async (suggestionId: string) => {
+    try {
+      const res = await fetch(`/api/meals/suggestions/${suggestionId}/dismiss`, {
+        method: 'POST',
+      });
+      if (res.ok) {
+        setSuggestions((prev) => prev.filter((s) => s.id !== suggestionId));
+      }
+    } catch (err) {
+      console.error('Failed to dismiss suggestion:', err);
+    }
   };
 
   const handlePrevDay = () => {
@@ -537,6 +585,7 @@ export function MealTracker() {
         variant="outline"
         onClick={() => {
           loadSavedMeals();
+          loadSuggestions();
           setIsFoodBankOpen(true);
         }}
         disabled={isAnalyzing || isSavingMeal}
@@ -642,12 +691,15 @@ export function MealTracker() {
       {/* Food Bank Picker */}
       <FoodBankPicker
         savedMeals={savedMeals}
+        suggestions={suggestions}
         isLoading={isLoadingSavedMeals}
         isOpen={isFoodBankOpen}
         onSelect={handleSelectFromBank}
         onDelete={handleDeleteSavedMeal}
         onUpdate={handleUpdateSavedMeal}
         onAdd={handleAddSavedMeal}
+        onAcceptSuggestion={handleAcceptSuggestion}
+        onDismissSuggestion={handleDismissSuggestion}
         onClose={() => setIsFoodBankOpen(false)}
       />
     </div>

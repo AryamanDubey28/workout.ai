@@ -1,37 +1,43 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { SavedMeal, Macros, MealCategory, MEAL_CATEGORIES } from '@/types/meal';
+import { SavedMeal, FoodSuggestion, Macros, MealCategory, MEAL_CATEGORIES } from '@/types/meal';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
   X, Bookmark, Loader2, Trash2, Search, Plus, Camera, Sparkles,
-  ArrowLeft, Pencil, Check, Save,
+  ArrowLeft, Pencil, Check, Save, Lightbulb,
 } from 'lucide-react';
 import { getCategoryForTime } from '@/lib/mealUtils';
 
-type View = 'list' | 'detail' | 'analyze' | 'log';
+type View = 'list' | 'detail' | 'analyze' | 'log' | 'suggestion-detail';
 
 interface FoodBankPickerProps {
   savedMeals: SavedMeal[];
+  suggestions?: FoodSuggestion[];
   isLoading: boolean;
   isOpen: boolean;
   onSelect: (meal: SavedMeal, category: MealCategory) => void;
   onDelete: (id: string) => void;
   onUpdate: (meal: SavedMeal) => void;
   onAdd: (meal: SavedMeal) => void;
+  onAcceptSuggestion?: (suggestion: FoodSuggestion, editedData: { name: string; description: string; macros: Macros }) => void;
+  onDismissSuggestion?: (id: string) => void;
   onClose: () => void;
 }
 
 export function FoodBankPicker({
   savedMeals,
+  suggestions = [],
   isLoading,
   isOpen,
   onSelect,
   onDelete,
   onUpdate,
   onAdd,
+  onAcceptSuggestion,
+  onDismissSuggestion,
   onClose,
 }: FoodBankPickerProps) {
   const [view, setView] = useState<View>('list');
@@ -57,6 +63,13 @@ export function FoodBankPicker({
   const [analyzeEditMacros, setAnalyzeEditMacros] = useState<Macros>({ calories: 0, protein: 0, carbs: 0, fat: 0 });
   const [isSavingNew, setIsSavingNew] = useState(false);
 
+  // Suggestion review state
+  const [reviewSuggestion, setReviewSuggestion] = useState<FoodSuggestion | null>(null);
+  const [suggestionName, setSuggestionName] = useState('');
+  const [suggestionDescription, setSuggestionDescription] = useState('');
+  const [suggestionMacros, setSuggestionMacros] = useState<Macros>({ calories: 0, protein: 0, carbs: 0, fat: 0 });
+  const [isSavingSuggestion, setIsSavingSuggestion] = useState(false);
+
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -75,6 +88,7 @@ export function FoodBankPicker({
     setAnalyzeText('');
     setAnalyzeFile(null);
     setAnalyzeName('');
+    setReviewSuggestion(null);
     setError(null);
     onClose();
   };
@@ -87,6 +101,7 @@ export function FoodBankPicker({
     setAnalyzeText('');
     setAnalyzeFile(null);
     setAnalyzeName('');
+    setReviewSuggestion(null);
     setError(null);
   };
 
@@ -102,6 +117,39 @@ export function FoodBankPicker({
   const openLog = (meal: SavedMeal) => {
     setSelectedMeal(meal);
     setView('log');
+  };
+
+  const openSuggestionDetail = (suggestion: FoodSuggestion) => {
+    setReviewSuggestion(suggestion);
+    setSuggestionName(suggestion.name);
+    setSuggestionDescription(suggestion.description);
+    setSuggestionMacros({ ...suggestion.macros });
+    setError(null);
+    setView('suggestion-detail');
+  };
+
+  const handleAcceptSuggestion = async () => {
+    if (!reviewSuggestion || !suggestionName.trim() || !onAcceptSuggestion) return;
+    setIsSavingSuggestion(true);
+    setError(null);
+    try {
+      await onAcceptSuggestion(reviewSuggestion, {
+        name: suggestionName.trim(),
+        description: suggestionDescription,
+        macros: suggestionMacros,
+      });
+      goToList();
+    } catch (err: any) {
+      setError(err.message || 'Failed to save suggestion');
+    } finally {
+      setIsSavingSuggestion(false);
+    }
+  };
+
+  const updateSuggestionMacro = (field: keyof Macros, value: string) => {
+    const num = value === '' ? 0 : Number(value);
+    if (isNaN(num)) return;
+    setSuggestionMacros((prev) => ({ ...prev, [field]: num }));
   };
 
   const handleSaveEdit = async () => {
@@ -235,6 +283,7 @@ export function FoodBankPicker({
               {view === 'log' && 'Log Meal'}
               {view === 'detail' && 'Edit Meal'}
               {view === 'analyze' && 'Add New'}
+              {view === 'suggestion-detail' && 'Review Suggestion'}
             </CardTitle>
             <div className="flex items-center gap-1">
               {view === 'list' && (
@@ -285,7 +334,7 @@ export function FoodBankPicker({
                   <div className="flex items-center justify-center py-8">
                     <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                   </div>
-                ) : filteredMeals.length === 0 ? (
+                ) : filteredMeals.length === 0 && (suggestions.length === 0 || searchQuery) ? (
                   <div className="text-center py-8">
                     {searchQuery ? (
                       <p className="text-sm text-muted-foreground">
@@ -307,7 +356,67 @@ export function FoodBankPicker({
                     )}
                   </div>
                 ) : (
-                  filteredMeals.map((meal) => (
+                  <>
+                    {/* Suggestions section */}
+                    {suggestions.length > 0 && !searchQuery && (
+                      <div className="mb-3">
+                        <div className="flex items-center gap-1.5 mb-2 px-1">
+                          <Lightbulb className="h-3.5 w-3.5 text-amber-500" />
+                          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                            Suggested for you
+                          </span>
+                        </div>
+                        <div className="space-y-2">
+                          {suggestions.map((suggestion) => (
+                            <div
+                              key={suggestion.id}
+                              className="relative group/sug border border-amber-500/20 bg-amber-500/5 rounded-lg hover:border-amber-500/40 transition-all duration-200"
+                            >
+                              <button
+                                onClick={() => openSuggestionDetail(suggestion)}
+                                className="w-full text-left p-3 pr-24"
+                              >
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-medium group-hover/sug:text-amber-600 dark:group-hover/sug:text-amber-400 transition-colors">
+                                    {suggestion.name}
+                                  </span>
+                                  <span className="text-[10px] bg-amber-500/15 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded-full font-medium shrink-0">
+                                    {suggestion.frequency}x
+                                  </span>
+                                </div>
+                                <div className="text-xs text-muted-foreground mt-0.5">
+                                  {suggestion.macros.calories} cal &middot; {suggestion.macros.protein}g P &middot; {suggestion.macros.carbs}g C &middot; {suggestion.macros.fat}g F
+                                </div>
+                              </button>
+                              <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); openSuggestionDetail(suggestion); }}
+                                  className="p-1.5 rounded-md opacity-0 group-hover/sug:opacity-100 hover:bg-amber-500/10 text-muted-foreground hover:text-amber-600 dark:hover:text-amber-400 transition-all"
+                                  title="Review & add to Food Bank"
+                                >
+                                  <Check className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onDismissSuggestion?.(suggestion.id);
+                                  }}
+                                  className="p-1.5 rounded-md opacity-0 group-hover/sug:opacity-100 hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all"
+                                  title="Dismiss suggestion"
+                                >
+                                  <X className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        {filteredMeals.length > 0 && (
+                          <div className="border-b border-border/30 mt-3" />
+                        )}
+                      </div>
+                    )}
+
+                    {filteredMeals.map((meal) => (
                     <div
                       key={meal.id}
                       className="relative group border border-border/50 rounded-lg hover:border-primary/30 hover:bg-primary/5 transition-all duration-200"
@@ -345,7 +454,8 @@ export function FoodBankPicker({
                         </button>
                       </div>
                     </div>
-                  ))
+                  ))}
+                  </>
                 )}
               </div>
             </>
@@ -449,6 +559,65 @@ export function FoodBankPicker({
                     <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving...</>
                   ) : (
                     <><Save className="h-4 w-4 mr-2" />Save Changes</>
+                  )}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* ===== SUGGESTION DETAIL VIEW ===== */}
+          {view === 'suggestion-detail' && reviewSuggestion && (
+            <div className="flex flex-col h-full gap-3">
+              <div className="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400 bg-amber-500/10 rounded-lg p-2">
+                <Lightbulb className="h-3.5 w-3.5 shrink-0" />
+                <span>You logged this meal <strong>{reviewSuggestion.frequency} times</strong> recently. Review the details and add it to your Food Bank.</span>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5 block">
+                  Name
+                </label>
+                <Input
+                  value={suggestionName}
+                  onChange={(e) => setSuggestionName(e.target.value)}
+                  placeholder="Meal name"
+                  className="text-sm"
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5 block">
+                  Description
+                </label>
+                <textarea
+                  value={suggestionDescription}
+                  onChange={(e) => setSuggestionDescription(e.target.value)}
+                  className="min-h-16 w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  maxLength={500}
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5 block">
+                  Macros
+                </label>
+                <EditableMacroGrid macros={suggestionMacros} onUpdate={updateSuggestionMacro} />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 mt-auto">
+                <Button variant="outline" onClick={goToList} disabled={isSavingSuggestion}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleAcceptSuggestion}
+                  disabled={isSavingSuggestion || !suggestionName.trim()}
+                  className="interactive-scale"
+                >
+                  {isSavingSuggestion ? (
+                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving...</>
+                  ) : (
+                    <><Check className="h-4 w-4 mr-2" />Add to Bank</>
                   )}
                 </Button>
               </div>

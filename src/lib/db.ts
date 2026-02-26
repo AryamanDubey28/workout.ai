@@ -1,7 +1,7 @@
 import { sql } from '@vercel/postgres';
 import { User, CreateUserData } from '@/types/user';
 import { Workout, WorkoutPreset, SplitReminder, Exercise, WorkoutType, RunData } from '@/types/workout';
-import { Meal, MealCategory, Macros, MacroGoal, SavedMeal } from '@/types/meal';
+import { Meal, MealCategory, Macros, MacroGoal, SavedMeal, FoodSuggestion, SuggestionStatus } from '@/types/meal';
 import bcrypt from 'bcryptjs';
 
 function parseDateOnly(value: string): Date | null {
@@ -309,6 +309,27 @@ export async function initDatabase() {
 
     await sql`
       CREATE INDEX IF NOT EXISTS chat_messages_conv_idx ON chat_messages(conversation_id, created_at ASC);
+    `;
+
+    // Create food_suggestions table
+    await sql`
+      CREATE TABLE IF NOT EXISTS food_suggestions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        description VARCHAR(500) NOT NULL,
+        calories INTEGER NOT NULL DEFAULT 0,
+        protein DECIMAL(6,1) NOT NULL DEFAULT 0,
+        carbs DECIMAL(6,1) NOT NULL DEFAULT 0,
+        fat DECIMAL(6,1) NOT NULL DEFAULT 0,
+        frequency INTEGER NOT NULL DEFAULT 1,
+        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS food_suggestions_user_status_idx ON food_suggestions(user_id, status);
     `;
 
     console.log('Database initialized successfully');
@@ -1402,5 +1423,108 @@ export async function clearChatMessages(conversationId: string): Promise<boolean
   } catch (error) {
     console.error('Error clearing chat messages:', error);
     return false;
+  }
+}
+
+// ===== FOOD SUGGESTION FUNCTIONS =====
+
+function mapFoodSuggestionRow(row: any): FoodSuggestion {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    macros: {
+      calories: Number(row.calories),
+      protein: Number(row.protein),
+      carbs: Number(row.carbs),
+      fat: Number(row.fat),
+    },
+    frequency: Number(row.frequency),
+    status: row.status,
+    createdAt: new Date(row.created_at),
+  };
+}
+
+export async function getPendingFoodSuggestions(userId: string): Promise<FoodSuggestion[]> {
+  try {
+    const result = await sql`
+      SELECT id, name, description, calories, protein, carbs, fat, frequency, status, created_at
+      FROM food_suggestions
+      WHERE user_id = ${userId} AND status = 'pending'
+      ORDER BY frequency DESC, created_at DESC;
+    `;
+    return result.rows.map(mapFoodSuggestionRow);
+  } catch (error) {
+    console.error('Error getting pending food suggestions:', error);
+    return [];
+  }
+}
+
+export async function getRecentFoodSuggestions(userId: string): Promise<FoodSuggestion[]> {
+  try {
+    const result = await sql`
+      SELECT id, name, description, calories, protein, carbs, fat, frequency, status, created_at
+      FROM food_suggestions
+      WHERE user_id = ${userId}
+        AND status IN ('pending', 'dismissed')
+        AND created_at > NOW() - INTERVAL '30 days'
+      ORDER BY created_at DESC;
+    `;
+    return result.rows.map(mapFoodSuggestionRow);
+  } catch (error) {
+    console.error('Error getting recent food suggestions:', error);
+    return [];
+  }
+}
+
+export async function createFoodSuggestion(
+  userId: string,
+  suggestion: { name: string; description: string; macros: Macros; frequency: number }
+): Promise<FoodSuggestion | null> {
+  try {
+    const result = await sql`
+      INSERT INTO food_suggestions (user_id, name, description, calories, protein, carbs, fat, frequency)
+      VALUES (
+        ${userId}, ${suggestion.name}, ${suggestion.description},
+        ${suggestion.macros.calories}, ${suggestion.macros.protein},
+        ${suggestion.macros.carbs}, ${suggestion.macros.fat},
+        ${suggestion.frequency}
+      )
+      RETURNING id, name, description, calories, protein, carbs, fat, frequency, status, created_at;
+    `;
+    return mapFoodSuggestionRow(result.rows[0]);
+  } catch (error) {
+    console.error('Error creating food suggestion:', error);
+    return null;
+  }
+}
+
+export async function updateFoodSuggestionStatus(
+  userId: string,
+  suggestionId: string,
+  status: SuggestionStatus
+): Promise<boolean> {
+  try {
+    const result = await sql`
+      UPDATE food_suggestions
+      SET status = ${status}
+      WHERE id = ${suggestionId} AND user_id = ${userId};
+    `;
+    return (result.rowCount ?? 0) > 0;
+  } catch (error) {
+    console.error('Error updating food suggestion status:', error);
+    return false;
+  }
+}
+
+export async function clearPendingSuggestions(userId: string): Promise<void> {
+  try {
+    await sql`
+      UPDATE food_suggestions
+      SET status = 'dismissed'
+      WHERE user_id = ${userId} AND status = 'pending';
+    `;
+  } catch (error) {
+    console.error('Error clearing pending suggestions:', error);
   }
 }
