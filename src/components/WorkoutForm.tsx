@@ -405,8 +405,8 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
   };
 
   return (
-    <Drawer open={true} onOpenChange={(open) => { if (!open) handleClose(); }} snapPoints={[0.95]} fadeFromIndex={0}>
-      <DrawerContent className="data-[vaul-drawer-direction=bottom]:max-h-none">
+    <Drawer open={true} onOpenChange={(open) => { if (!open) handleClose(); }}>
+      <DrawerContent style={{ height: '95dvh', maxHeight: '95dvh' }}>
         <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
         {/* Header */}
         <div className="shrink-0 border-b px-4 pb-3 pt-2">
