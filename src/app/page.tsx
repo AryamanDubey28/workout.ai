@@ -12,6 +12,7 @@ import { UserProfile } from "@/components/UserProfile";
 import { BottomNav, TabId } from "@/components/BottomNav";
 import { MealTracker } from "@/components/MealTracker";
 import { ChatView } from "@/components/ChatView";
+import { CalendarView } from "@/components/CalendarView";
 import { PresetManager } from "@/components/PresetManager";
 import { SplitReminderBanner } from "@/components/SplitReminderBanner";
 import { Workout, WorkoutPreset, SplitReminder } from "@/types/workout";
@@ -498,6 +499,13 @@ export default function Home() {
         {activeTab === 'meals' && (
           <div className="w-full max-w-3xl mx-auto pt-6">
             <MealTracker />
+          </div>
+        )}
+
+        {/* Calendar Tab */}
+        {activeTab === 'calendar' && (
+          <div className="w-full max-w-3xl mx-auto pt-6">
+            <CalendarView workouts={workouts} />
           </div>
         )}
 
