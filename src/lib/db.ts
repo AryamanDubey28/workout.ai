@@ -985,6 +985,55 @@ export async function getUserMealsByDate(userId: string, date: string): Promise<
   }
 }
 
+// Get meals for a user within a date range (inclusive)
+export async function getUserMealsForDateRange(
+  userId: string,
+  startDate: string,
+  endDate: string
+): Promise<{ date: string; meals: Meal[] }[]> {
+  try {
+    const result = await sql`
+      SELECT id, description, calories, protein, carbs, fat, meal_category, image_url, date, created_at
+      FROM meals
+      WHERE user_id = ${userId} AND date >= ${startDate} AND date <= ${endDate}
+      ORDER BY date DESC,
+        CASE meal_category
+          WHEN 'breakfast' THEN 1
+          WHEN 'lunch' THEN 2
+          WHEN 'snack' THEN 3
+          WHEN 'dinner' THEN 4
+          ELSE 5
+        END,
+        created_at ASC;
+    `;
+
+    const byDate = new Map<string, Meal[]>();
+    for (const row of result.rows) {
+      const dateKey = new Date(row.date).toISOString().split('T')[0];
+      const meal: Meal = {
+        id: row.id,
+        description: row.description,
+        macros: {
+          calories: Number(row.calories),
+          protein: Number(row.protein),
+          carbs: Number(row.carbs),
+          fat: Number(row.fat),
+        },
+        category: row.meal_category || 'snack',
+        imageUrl: row.image_url,
+        createdAt: new Date(row.created_at),
+      };
+      if (!byDate.has(dateKey)) byDate.set(dateKey, []);
+      byDate.get(dateKey)!.push(meal);
+    }
+
+    return Array.from(byDate.entries()).map(([date, meals]) => ({ date, meals }));
+  } catch (error) {
+    console.error('Error getting meals for date range:', error);
+    return [];
+  }
+}
+
 // Delete a meal
 export async function deleteMeal(userId: string, mealId: string): Promise<boolean> {
   try {
