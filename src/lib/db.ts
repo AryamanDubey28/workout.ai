@@ -1,6 +1,6 @@
 import { sql } from '@vercel/postgres';
 import { User, CreateUserData } from '@/types/user';
-import { Workout, WorkoutPreset, SplitReminder, Exercise, WorkoutType } from '@/types/workout';
+import { Workout, WorkoutPreset, SplitReminder, Exercise, WorkoutType, RunData } from '@/types/workout';
 import { Meal, MealCategory, Macros, MacroGoal, SavedMeal } from '@/types/meal';
 import bcrypt from 'bcryptjs';
 
@@ -258,6 +258,14 @@ export async function initDatabase() {
         created_at TIMESTAMP DEFAULT NOW(),
         updated_at TIMESTAMP DEFAULT NOW()
       );
+    `;
+
+    await sql`
+      ALTER TABLE workout_presets ADD COLUMN IF NOT EXISTS type VARCHAR(20) NOT NULL DEFAULT 'strength';
+    `;
+
+    await sql`
+      ALTER TABLE workout_presets ADD COLUMN IF NOT EXISTS run_data JSONB;
     `;
 
     await sql`
@@ -745,6 +753,8 @@ function mapPresetRow(row: any): WorkoutPreset {
   return {
     id: row.id,
     name: row.name,
+    type: (row.type as WorkoutType) || 'strength',
+    runData: row.run_data || undefined,
     exercises: row.exercises as Exercise[],
     sortOrder: row.sort_order,
     createdAt: new Date(row.created_at),
@@ -755,13 +765,15 @@ function mapPresetRow(row: any): WorkoutPreset {
 // Create a new workout preset
 export async function createWorkoutPreset(
   userId: string,
-  preset: { id: string; name: string; exercises: Exercise[]; sortOrder: number }
+  preset: { id: string; name: string; type?: WorkoutType; runData?: RunData; exercises: Exercise[]; sortOrder: number }
 ): Promise<WorkoutPreset | null> {
   try {
+    const presetType = preset.type || 'strength';
+    const runDataJson = preset.runData ? JSON.stringify(preset.runData) : null;
     const result = await sql`
-      INSERT INTO workout_presets (id, user_id, name, exercises, sort_order, created_at, updated_at)
-      VALUES (${preset.id}, ${userId}, ${preset.name}, ${JSON.stringify(preset.exercises)}, ${preset.sortOrder}, NOW(), NOW())
-      RETURNING id, name, exercises, sort_order, created_at, updated_at;
+      INSERT INTO workout_presets (id, user_id, name, type, run_data, exercises, sort_order, created_at, updated_at)
+      VALUES (${preset.id}, ${userId}, ${preset.name}, ${presetType}, ${runDataJson}, ${JSON.stringify(preset.exercises)}, ${preset.sortOrder}, NOW(), NOW())
+      RETURNING id, name, type, run_data, exercises, sort_order, created_at, updated_at;
     `;
     return mapPresetRow(result.rows[0]);
   } catch (error) {
@@ -774,7 +786,7 @@ export async function createWorkoutPreset(
 export async function getUserPresets(userId: string): Promise<WorkoutPreset[]> {
   try {
     const result = await sql`
-      SELECT id, name, exercises, sort_order, created_at, updated_at
+      SELECT id, name, type, run_data, exercises, sort_order, created_at, updated_at
       FROM workout_presets
       WHERE user_id = ${userId}
       ORDER BY sort_order ASC, created_at ASC;
@@ -790,11 +802,11 @@ export async function getUserPresets(userId: string): Promise<WorkoutPreset[]> {
 export async function updateWorkoutPreset(
   userId: string,
   presetId: string,
-  updates: Partial<Pick<WorkoutPreset, 'name' | 'exercises' | 'sortOrder'>>
+  updates: Partial<Pick<WorkoutPreset, 'name' | 'type' | 'runData' | 'exercises' | 'sortOrder'>>
 ): Promise<WorkoutPreset | null> {
   try {
     const existingResult = await sql`
-      SELECT id, name, exercises, sort_order, created_at, updated_at
+      SELECT id, name, type, run_data, exercises, sort_order, created_at, updated_at
       FROM workout_presets
       WHERE id = ${presetId} AND user_id = ${userId}
       LIMIT 1;
@@ -804,14 +816,17 @@ export async function updateWorkoutPreset(
 
     const existing = existingResult.rows[0];
     const name = updates.name !== undefined ? updates.name : existing.name;
+    const type = updates.type !== undefined ? updates.type : existing.type;
+    const runData = updates.runData !== undefined ? updates.runData : existing.run_data;
     const exercises = updates.exercises !== undefined ? updates.exercises : existing.exercises;
     const sortOrder = updates.sortOrder !== undefined ? updates.sortOrder : existing.sort_order;
+    const runDataJson = runData ? JSON.stringify(runData) : null;
 
     const result = await sql`
       UPDATE workout_presets
-      SET name = ${name}, exercises = ${JSON.stringify(exercises)}, sort_order = ${sortOrder}, updated_at = NOW()
+      SET name = ${name}, type = ${type}, run_data = ${runDataJson}, exercises = ${JSON.stringify(exercises)}, sort_order = ${sortOrder}, updated_at = NOW()
       WHERE id = ${presetId} AND user_id = ${userId}
-      RETURNING id, name, exercises, sort_order, created_at, updated_at;
+      RETURNING id, name, type, run_data, exercises, sort_order, created_at, updated_at;
     `;
     return mapPresetRow(result.rows[0]);
   } catch (error) {

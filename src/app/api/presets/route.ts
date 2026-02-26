@@ -44,9 +44,9 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
 
-    if (!body.id || !body.name || !body.exercises) {
+    if (!body.id || !body.name) {
       return NextResponse.json(
-        { error: 'Missing required fields: id, name, exercises' },
+        { error: 'Missing required fields: id, name' },
         { status: 400 }
       );
     }
@@ -58,7 +58,9 @@ export async function POST(request: NextRequest) {
     const preset = await createWorkoutPreset(session.userId, {
       id: body.id,
       name: body.name.trim(),
-      exercises: body.exercises,
+      type: body.type || 'strength',
+      runData: body.runData || undefined,
+      exercises: body.exercises || [],
       sortOrder,
     });
 

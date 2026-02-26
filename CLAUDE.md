@@ -88,3 +88,7 @@ Configured via `@ducanh2912/next-pwa` in `next.config.js`. Auth routes are exclu
 ### ESLint
 
 `@typescript-eslint/no-explicit-any` and `@typescript-eslint/no-unused-vars` are disabled.
+
+### Versioning
+
+After completing a new feature or improvement, always increment the version displayed in `src/components/UserProfile.tsx`. Use `+0.0.1` for small changes and `+0.1.0` for larger features.

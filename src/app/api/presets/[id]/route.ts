@@ -31,10 +31,12 @@ export async function PUT(
     const body = await request.json();
 
     const hasName = Object.prototype.hasOwnProperty.call(body, 'name');
+    const hasType = Object.prototype.hasOwnProperty.call(body, 'type');
+    const hasRunData = Object.prototype.hasOwnProperty.call(body, 'runData');
     const hasExercises = Object.prototype.hasOwnProperty.call(body, 'exercises');
     const hasSortOrder = Object.prototype.hasOwnProperty.call(body, 'sortOrder');
 
-    if (!hasName && !hasExercises && !hasSortOrder) {
+    if (!hasName && !hasType && !hasRunData && !hasExercises && !hasSortOrder) {
       return NextResponse.json(
         { error: 'At least one field must be provided for update' },
         { status: 400 }
@@ -43,6 +45,8 @@ export async function PUT(
 
     const updates: any = {};
     if (hasName) updates.name = typeof body.name === 'string' ? body.name.trim() : body.name;
+    if (hasType) updates.type = body.type;
+    if (hasRunData) updates.runData = body.runData;
     if (hasExercises) updates.exercises = body.exercises;
     if (hasSortOrder) updates.sortOrder = body.sortOrder;
 

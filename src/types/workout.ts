@@ -33,6 +33,8 @@ export interface Workout {
 export interface WorkoutPreset {
   id: string;
   name: string;
+  type?: WorkoutType;
+  runData?: RunData;
   exercises: Exercise[];
   sortOrder: number;
   createdAt: Date;

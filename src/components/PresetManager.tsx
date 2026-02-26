@@ -1,11 +1,11 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { WorkoutPreset, Exercise } from '@/types/workout';
+import { WorkoutPreset, Exercise, WorkoutType, RunData } from '@/types/workout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { PresetForm } from './PresetForm';
-import { Plus, ArrowLeft, GripVertical, Pencil, Trash2, Dumbbell, Loader2 } from 'lucide-react';
+import { Plus, ArrowLeft, GripVertical, Pencil, Trash2, Dumbbell, Footprints, Loader2 } from 'lucide-react';
 import {
   DndContext,
   closestCenter,
@@ -52,6 +52,7 @@ function SortablePresetCard({
     opacity: isDragging ? 0.5 : 1,
   };
 
+  const isRun = preset.type === 'run';
   const exerciseNames = preset.exercises
     .map((e) => e.name)
     .filter(Boolean)
@@ -71,14 +72,26 @@ function SortablePresetCard({
             </button>
 
             <div className="flex-1 min-w-0">
-              <h4 className="font-semibold truncate">{preset.name}</h4>
+              <h4 className="font-semibold truncate flex items-center gap-1.5">
+                {isRun ? <Footprints className="h-3.5 w-3.5 text-primary shrink-0" /> : <Dumbbell className="h-3.5 w-3.5 text-primary shrink-0" />}
+                {preset.name}
+              </h4>
               <p className="text-xs text-muted-foreground mt-0.5">
-                {preset.exercises.length} exercise{preset.exercises.length !== 1 ? 's' : ''}
-                {exerciseNames.length > 0 && (
-                  <span className="ml-1">
-                    — {exerciseNames.join(', ')}
-                    {preset.exercises.length > 5 && '...'}
-                  </span>
+                {isRun ? (
+                  <>
+                    {preset.runData?.distanceKm ? `${preset.runData.distanceKm} km` : 'Run'}
+                    {preset.runData?.durationSeconds ? ` — ${Math.floor(preset.runData.durationSeconds / 60)}min` : ''}
+                  </>
+                ) : (
+                  <>
+                    {preset.exercises.length} exercise{preset.exercises.length !== 1 ? 's' : ''}
+                    {exerciseNames.length > 0 && (
+                      <span className="ml-1">
+                        — {exerciseNames.join(', ')}
+                        {preset.exercises.length > 5 && '...'}
+                      </span>
+                    )}
+                  </>
                 )}
               </p>
             </div>
@@ -148,7 +161,7 @@ export function PresetManager({ onBack }: PresetManagerProps) {
     loadPresets();
   }, [loadPresets]);
 
-  const handleCreatePreset = async (data: { name: string; exercises: Exercise[] }) => {
+  const handleCreatePreset = async (data: { name: string; type?: WorkoutType; runData?: RunData; exercises: Exercise[] }) => {
     try {
       const response = await fetch('/api/presets', {
         method: 'POST',
@@ -156,6 +169,8 @@ export function PresetManager({ onBack }: PresetManagerProps) {
         body: JSON.stringify({
           id: crypto.randomUUID(),
           name: data.name,
+          type: data.type || 'strength',
+          runData: data.runData,
           exercises: data.exercises,
         }),
       });
@@ -168,7 +183,7 @@ export function PresetManager({ onBack }: PresetManagerProps) {
     }
   };
 
-  const handleUpdatePreset = async (data: { name: string; exercises: Exercise[] }) => {
+  const handleUpdatePreset = async (data: { name: string; type?: WorkoutType; runData?: RunData; exercises: Exercise[] }) => {
     if (!editingPreset) return;
     try {
       const response = await fetch(`/api/presets/${editingPreset.id}`, {
@@ -176,6 +191,8 @@ export function PresetManager({ onBack }: PresetManagerProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: data.name,
+          type: data.type || 'strength',
+          runData: data.runData,
           exercises: data.exercises,
         }),
       });
