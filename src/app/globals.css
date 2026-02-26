@@ -253,20 +253,7 @@
     }
   }
 
-  @keyframes slide-right {
-    from {
-      transform: translateX(-100%);
-    }
-    to {
-      transform: translateX(0);
-    }
-  }
-
   /* Animation utility classes */
-  .animate-slide-right {
-    animation: slide-right 0.2s ease-out;
-  }
-
   .animate-blob {
     animation: blob 7s infinite;
   }
