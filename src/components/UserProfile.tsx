@@ -6,7 +6,7 @@ import { MacroGoal, GoalType, ActivityLevel, Sex } from '@/types/meal';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { LogOut, User as UserIcon, Mail, Calendar, Weight, Target, Calculator, Save, Loader2, Check, Dumbbell } from 'lucide-react';
+import { LogOut, User as UserIcon, Mail, Calendar, Weight, Target, Calculator, Save, Loader2, Check, Dumbbell, Download } from 'lucide-react';
 
 interface UserProfileProps {
   user: User;
@@ -65,6 +65,7 @@ export function UserProfile({ user, onLogout, onManagePresets }: UserProfileProp
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [showGoalForm, setShowGoalForm] = useState(false);
+  const [exportingRange, setExportingRange] = useState<string | null>(null);
 
   // Form state
   const [goalType, setGoalType] = useState<GoalType>('maintenance');
@@ -143,6 +144,27 @@ export function UserProfile({ user, onLogout, onManagePresets }: UserProfileProp
       console.error('Failed to save goal:', err);
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleExport = async (range: '30' | '60' | 'all') => {
+    setExportingRange(range);
+    try {
+      const res = await fetch(`/api/workouts/export?range=${range}`);
+      if (!res.ok) throw new Error('Export failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `workouts-${range === 'all' ? 'all' : `last-${range}-days`}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Export failed:', err);
+    } finally {
+      setExportingRange(null);
     }
   };
 
@@ -235,6 +257,39 @@ export function UserProfile({ user, onLogout, onManagePresets }: UserProfileProp
           >
             Manage Presets
           </Button>
+        </CardContent>
+      </Card>
+
+      {/* Export Data Card */}
+      <Card className="w-full max-w-md animate-scale-in animation-delay-100 border-border/50 shadow-lg">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Download className="h-5 w-5 text-primary" />
+            Export Workouts
+          </CardTitle>
+          <CardDescription>Download your workout data as CSV</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {([
+            { range: '30' as const, label: 'Past 30 Days' },
+            { range: '60' as const, label: 'Past 60 Days' },
+            { range: 'all' as const, label: 'All Time' },
+          ]).map(({ range, label }) => (
+            <Button
+              key={range}
+              variant="outline"
+              onClick={() => handleExport(range)}
+              disabled={exportingRange !== null}
+              className="w-full interactive-scale justify-between"
+            >
+              <span>{label}</span>
+              {exportingRange === range ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4" />
+              )}
+            </Button>
+          ))}
         </CardContent>
       </Card>
 
