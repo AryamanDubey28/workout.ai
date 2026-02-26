@@ -76,6 +76,7 @@ export function ChatView() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const streamingMsgIdRef = useRef<string | null>(null);
+  const isFirstMountRef = useRef(true);
 
   const scrollToBottom = useCallback(() => {
     if (scrollAreaRef.current) {
@@ -89,7 +90,12 @@ export function ChatView() {
   }, [messages, scrollToBottom]);
 
   // Persist activeConversationId to survive remounts
+  // Skip initial mount so we don't nuke the saved ID before loadConversations reads it
   useEffect(() => {
+    if (isFirstMountRef.current) {
+      isFirstMountRef.current = false;
+      return;
+    }
     try {
       if (activeConversationId) {
         localStorage.setItem(CACHE_ACTIVE_CONV_KEY, activeConversationId);
@@ -276,6 +282,24 @@ export function ChatView() {
     const trimmed = input.trim();
     if (!trimmed || isLoading || isStreaming) return;
 
+    // Immediately lock UI to prevent double-submit
+    setInput('');
+    setIsLoading(true);
+    setError(null);
+
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto';
+    }
+
+    const userMsg: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: 'user',
+      content: trimmed,
+      createdAt: new Date(),
+    };
+
+    setMessages((prev) => [...prev, userMsg]);
+
     // Auto-create conversation if none exists (lazy creation)
     let convId = activeConversationId;
     if (!convId) {
@@ -297,32 +321,18 @@ export function ChatView() {
           setConversations((prev) => [conv, ...prev]);
         } else {
           setError('Failed to create conversation');
+          setIsLoading(false);
           return;
         }
       } catch {
         setError('Failed to create conversation');
+        setIsLoading(false);
         return;
       }
     }
 
-    const userMsg: ChatMessage = {
-      id: crypto.randomUUID(),
-      role: 'user',
-      content: trimmed,
-      createdAt: new Date(),
-    };
-
     const assistantMsgId = crypto.randomUUID();
     streamingMsgIdRef.current = assistantMsgId;
-
-    setMessages((prev) => [...prev, userMsg]);
-    setInput('');
-    setIsLoading(true);
-    setError(null);
-
-    if (inputRef.current) {
-      inputRef.current.style.height = 'auto';
-    }
 
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
