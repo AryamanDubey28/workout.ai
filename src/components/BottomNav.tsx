@@ -1,8 +1,8 @@
 'use client';
 
-import { Dumbbell, UtensilsCrossed, MessageCircle } from 'lucide-react';
+import { Dumbbell, UtensilsCrossed, CalendarDays, MessageCircle } from 'lucide-react';
 
-export type TabId = 'workouts' | 'meals' | 'chat';
+export type TabId = 'workouts' | 'meals' | 'calendar' | 'chat';
 
 interface BottomNavProps {
   activeTab: TabId;
@@ -13,6 +13,7 @@ interface BottomNavProps {
 const tabs: { id: TabId; label: string; icon: typeof Dumbbell }[] = [
   { id: 'workouts', label: 'Workouts', icon: Dumbbell },
   { id: 'meals', label: 'Meals', icon: UtensilsCrossed },
+  { id: 'calendar', label: 'Calendar', icon: CalendarDays },
   { id: 'chat', label: 'Chat', icon: MessageCircle },
 ];
 
