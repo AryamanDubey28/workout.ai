@@ -41,6 +41,7 @@ export function Autocomplete({
   const dropdownRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const isSelectingRef = useRef(false);
+  const isInitialMountRef = useRef(true);
 
   // Use the exercise cache hook
   const { searchExercises, isCacheReady, isLoading: cacheLoading } = useExerciseCache();
@@ -67,7 +68,13 @@ export function Autocomplete({
       if (isSelectingRef.current) {
         return;
       }
-      
+
+      // Skip the first value-triggered search (preset/draft load)
+      if (isInitialMountRef.current) {
+        isInitialMountRef.current = false;
+        return;
+      }
+
       if (value && value.trim().length > 0) {
         searchLocal(value.trim());
         setIsOpen(true);
@@ -89,8 +96,9 @@ export function Autocomplete({
     const newValue = e.target.value;
     onChange(newValue);
     setSelectedIndex(-1);
-    // Reset selection flag when user manually types
+    // Reset flags when user manually types
     isSelectingRef.current = false;
+    isInitialMountRef.current = false;
   };
 
   // Handle keyboard navigation

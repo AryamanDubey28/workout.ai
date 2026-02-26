@@ -1,10 +1,7 @@
 'use client';
 
 import { Workout } from '@/types/workout';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Trash2, Edit3, Footprints } from 'lucide-react';
+import { Trash2, Footprints } from 'lucide-react';
 import { calculatePace, formatPace, formatDuration, formatDistance } from '@/lib/utils';
 
 interface WorkoutCardProps {
@@ -14,164 +11,79 @@ interface WorkoutCardProps {
 }
 
 export function WorkoutCard({ workout, onClick, onDelete }: WorkoutCardProps) {
-  const displayExercises = workout.exercises.slice(0, 5);
-  const hasMoreExercises = workout.exercises.length > 5;
+  const exerciseNames = workout.exercises
+    .map((e) => e.name)
+    .filter(Boolean);
 
-  const formatExercise = (exercise: any) => {
-    if (exercise.useEffectiveReps) {
-      const weight = exercise.weight === 'BW' ? 'BW' : exercise.weight ? `${exercise.weight}kg` : '';
-      const max = exercise.effectiveRepsMax || 0;
-      const target = exercise.effectiveRepsTarget || 0;
-      return `${exercise.name} ${weight} - ${max}/${target} ER`.trim();
-    }
+  const displayNames = exerciseNames.slice(0, 3);
+  const extraCount = exerciseNames.length - 3;
+  const exerciseSummary =
+    displayNames.join(' / ') + (extraCount > 0 ? ` +${extraCount}` : '');
 
-    // Check if we have per-set weights
-    const hasPerSetWeights = exercise.weightsPerSet && exercise.weightsPerSet.length > 0;
-    
-    if (hasPerSetWeights) {
-      // Show combined weight+reps per set for clarity
-      const setDetails = [];
-      for (let i = 0; i < exercise.weightsPerSet.length; i++) {
-        const weight = exercise.weightsPerSet[i];
-        const reps = exercise.repsPerSet?.[i] || '?';
-        const weightStr = weight === 'BW' ? 'BW' : weight ? `${weight}kg` : '?kg';
-        setDetails.push(`${weightStr}×${reps}`);
-      }
-      return `${exercise.name} ⚖️ ${setDetails.join(', ')}`;
-    } else {
-      // Standard weight display
-      const weight = exercise.weight === 'BW' ? 'BW' : exercise.weight ? `${exercise.weight}kg` : '';
-      
-      if (exercise.repsPerSet && exercise.repsPerSet.length > 0) {
-        const sets = exercise.repsPerSet.length;
-        const allSameReps = exercise.repsPerSet.every((reps: number) => reps === exercise.repsPerSet[0]);
-        
-        if (allSameReps) {
-          // All sets have same reps: "Exercise 20kg - 3x8"
-          return `${exercise.name} ${weight} - ${sets}x${exercise.repsPerSet[0]}`.trim();
-        } else {
-          // Different reps per set: "Exercise 20kg - 8, 7, 6"
-          return `${exercise.name} ${weight} - ${exercise.repsPerSet.join(', ')}`.trim();
-        }
-      } else {
-        // Fallback to old format
-        const sets = exercise.sets || 0;
-        const reps = exercise.reps || 0;
-        return `${exercise.name} ${weight} - ${sets}x${reps}`.trim();
-      }
-    }
-  };
+  const isRun = (workout.type || 'strength') === 'run';
 
   return (
-    <Card className="hover:shadow-lg hover:shadow-primary/5 transition-all duration-300 hover:scale-[1.02] group cursor-pointer border-border/50 hover:border-border bg-card/50 hover:bg-card/80 backdrop-blur-sm overflow-hidden">
-      <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-accent/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-      
-      <CardHeader className="pb-3 sm:pb-4 relative">
-        <div className="flex items-start justify-between gap-3">
-          <div 
-            className="flex-1" 
-            onClick={onClick}
-          >
-            <CardTitle className="text-base sm:text-lg leading-tight transition-colors duration-200 group-hover:text-primary">
-              {workout.name || 'Untitled Workout'}
-            </CardTitle>
-            <div className="text-xs sm:text-sm text-muted-foreground mt-1 flex items-center gap-2">
-              <span>{workout.date.toLocaleDateString('en-US', { 
-                weekday: 'short',
-                month: 'short', 
-                day: 'numeric',
-                year: workout.date.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined
-              })}</span>
-              <div className="w-1 h-1 bg-muted-foreground/50 rounded-full" />
-              {(workout.type || 'strength') === 'run' ? (
-                <span className="text-xs flex items-center gap-1">
-                  <Footprints className="h-3 w-3" />
-                  Run
-                  {workout.exercises.length > 0 && ` + ${workout.exercises.length} exercise${workout.exercises.length !== 1 ? 's' : ''}`}
-                </span>
-              ) : (
-                <span className="text-xs">{workout.exercises.length} exercise{workout.exercises.length !== 1 ? 's' : ''}</span>
-              )}
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <Badge variant="secondary" className="text-xs transition-all duration-200 group-hover:bg-primary/10 group-hover:text-primary">
-              {(workout.type || 'strength') === 'run' ? (
-                <Footprints className="h-3 w-3" />
-              ) : (
-                workout.exercises.length
-              )}
-            </Badge>
-            <div className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all duration-300 transform sm:translate-x-2 sm:group-hover:translate-x-0">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onClick();
-                }}
-                className="h-8 w-8 p-0 hover:bg-primary/10 hover:text-primary transition-all duration-200 interactive-scale"
-                title="Edit workout"
-              >
-                <Edit3 className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDelete();
-                }}
-                className="h-8 w-8 p-0 hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all duration-200 interactive-scale"
-                title="Delete workout"
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-        </div>
-      </CardHeader>
-      
-      <CardContent className="pt-0 relative" onClick={onClick}>
-        <div className="space-y-1.5 sm:space-y-2">
-          {workout.runData && (
-            <div className="flex items-center gap-3 text-sm mb-3 pb-3 border-b border-border/30">
-              <Footprints className="h-4 w-4 text-primary shrink-0" />
-              <div className="flex flex-wrap gap-x-3 gap-y-1 text-muted-foreground group-hover:text-foreground/80 transition-colors duration-200">
-                <span>{formatDistance(workout.runData.distanceKm)}</span>
-                <span className="text-border">|</span>
-                <span>{formatDuration(workout.runData.durationSeconds)}</span>
-                {(() => {
-                  const pace = calculatePace(workout.runData!.distanceKm, workout.runData!.durationSeconds);
-                  return pace ? (
-                    <>
-                      <span className="text-border">|</span>
-                      <span className="text-primary font-medium">{formatPace(pace)}</span>
-                    </>
-                  ) : null;
-                })()}
-              </div>
-            </div>
-          )}
-          {displayExercises.map((exercise, index) => (
-            <div 
-              key={exercise.id} 
-              className="text-xs sm:text-sm text-muted-foreground leading-relaxed transition-all duration-200 group-hover:text-foreground/80 transform group-hover:translate-x-1"
-              style={{ transitionDelay: `${index * 50}ms` }}
-            >
-              <span className="inline-block w-2 h-2 bg-primary/30 rounded-full mr-2 transition-all duration-200 group-hover:bg-primary/60" />
-              {formatExercise(exercise)}
-            </div>
-          ))}
-          
-          {hasMoreExercises && (
-            <div className="text-xs text-muted-foreground/70 italic pt-1 transition-all duration-200 group-hover:text-muted-foreground transform group-hover:translate-x-1">
-              <span className="inline-block w-2 h-2 bg-muted-foreground/30 rounded-full mr-2" />
-              +{workout.exercises.length - 5} more exercises...
-            </div>
+    <div
+      className="flex items-start gap-3 rounded-xl border border-border/50 bg-card/50 p-4 transition-colors active:bg-card/80 cursor-pointer"
+      onClick={onClick}
+    >
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="font-semibold text-sm truncate">
+            {workout.name || 'Untitled Workout'}
+          </span>
+          {isRun && (
+            <span className="shrink-0 inline-flex items-center gap-1 text-xs text-primary bg-primary/10 rounded-full px-2 py-0.5">
+              <Footprints className="h-3 w-3" />
+              Run
+            </span>
           )}
         </div>
-      </CardContent>
-    </Card>
+
+        <p className="text-xs text-muted-foreground mt-0.5">
+          {workout.date.toLocaleDateString('en-US', {
+            weekday: 'short',
+            month: 'short',
+            day: 'numeric',
+            year:
+              workout.date.getFullYear() !== new Date().getFullYear()
+                ? 'numeric'
+                : undefined,
+          })}
+        </p>
+
+        {workout.runData && (
+          <p className="text-xs text-muted-foreground mt-1">
+            {formatDistance(workout.runData.distanceKm)}
+            {' | '}
+            {formatDuration(workout.runData.durationSeconds)}
+            {(() => {
+              const pace = calculatePace(
+                workout.runData!.distanceKm,
+                workout.runData!.durationSeconds
+              );
+              return pace ? ` | ${formatPace(pace)}` : '';
+            })()}
+          </p>
+        )}
+
+        {exerciseSummary && (
+          <p className="text-xs text-muted-foreground mt-1 truncate">
+            {exerciseSummary}
+          </p>
+        )}
+      </div>
+
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onDelete();
+        }}
+        className="shrink-0 p-1.5 rounded-lg text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10 transition-colors"
+        title="Delete workout"
+      >
+        <Trash2 className="h-4 w-4" />
+      </button>
+    </div>
   );
 }
