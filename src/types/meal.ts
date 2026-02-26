@@ -57,6 +57,18 @@ export interface SavedMeal {
   createdAt: Date;
 }
 
+export type SuggestionStatus = 'pending' | 'dismissed' | 'accepted';
+
+export interface FoodSuggestion {
+  id: string;
+  name: string;
+  description: string;
+  macros: Macros;
+  frequency: number;
+  status: SuggestionStatus;
+  createdAt: Date;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';

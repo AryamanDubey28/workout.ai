@@ -13,6 +13,9 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@ducanh2912/next-pwa": "^10.2.9",
+    "@langchain/core": "^1.1.28",
+    "@langchain/langgraph": "^1.1.5",
+    "@langchain/openai": "^1.2.10",
     "@radix-ui/react-label": "^2.1.7",
     "@radix-ui/react-separator": "^1.1.7",
     "@radix-ui/react-slot": "^1.2.3",
@@ -33,7 +36,8 @@
     "react-dom": "19.1.0",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
-    "tailwind-merge": "^3.3.1"
+    "tailwind-merge": "^3.3.1",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
