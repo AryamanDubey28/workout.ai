@@ -6,7 +6,8 @@ import { MacroGoal, GoalType, ActivityLevel, Sex } from '@/types/meal';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { LogOut, User as UserIcon, Mail, Calendar, Weight, Target, Calculator, Save, Loader2, Check, Dumbbell, Download, Sparkles, Plus, X } from 'lucide-react';
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
+import { LogOut, User as UserIcon, Mail, Calendar, Weight, Target, Calculator, Save, Loader2, Check, Dumbbell, Download, Sparkles, Plus, X, ChevronRight } from 'lucide-react';
 
 const FACT_CATEGORIES: { value: FactCategory; label: string }[] = [
   { value: 'health', label: 'Health & Injuries' },
@@ -79,6 +80,7 @@ export function UserProfile({ user, onLogout, onManagePresets }: UserProfileProp
   // Facts state
   const [facts, setFacts] = useState<UserFact[]>([]);
   const [isLoadingFacts, setIsLoadingFacts] = useState(true);
+  const [showFacts, setShowFacts] = useState(false);
   const [newFactContent, setNewFactContent] = useState('');
   const [newFactCategory, setNewFactCategory] = useState<FactCategory>('personality');
   const [isAddingFact, setIsAddingFact] = useState(false);
@@ -326,106 +328,151 @@ export function UserProfile({ user, onLogout, onManagePresets }: UserProfileProp
         </CardContent>
       </Card>
 
-      {/* About You Card */}
-      <Card className="w-full max-w-md animate-scale-in animation-delay-100 border-border/50 shadow-lg">
+      {/* About You Card — summary, opens Drawer */}
+      <Card
+        className="w-full max-w-md animate-scale-in animation-delay-100 border-border/50 shadow-lg cursor-pointer hover:bg-muted/30 transition-colors"
+        onClick={() => setShowFacts(true)}
+      >
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-primary" />
-            About You
-          </CardTitle>
-          <CardDescription>Things the AI knows about you</CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Sparkles className="h-5 w-5 text-primary" />
+                About You
+              </CardTitle>
+              <CardDescription>
+                {isLoadingFacts
+                  ? 'Loading...'
+                  : facts.length === 0
+                    ? 'Tap to add things the AI should know about you'
+                    : `${facts.length} fact${facts.length === 1 ? '' : 's'} across ${FACT_CATEGORIES.filter((cat) => facts.some((f) => f.category === cat.value)).length} categories`}
+              </CardDescription>
+            </div>
+            <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0" />
+          </div>
         </CardHeader>
-        <CardContent>
-          {isLoadingFacts ? (
-            <div className="flex items-center justify-center py-6">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            </div>
-          ) : facts.length === 0 ? (
-            <div className="text-center py-4 space-y-2">
-              <p className="text-sm text-muted-foreground">
-                Chat with your AI assistant and it will learn about you over time.
-              </p>
-              <p className="text-xs text-muted-foreground/70">
-                You can also add facts manually below.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {FACT_CATEGORIES.filter((cat) => facts.some((f) => f.category === cat.value)).map((cat) => (
-                <div key={cat.value}>
-                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-1.5">
-                    {cat.label}
-                  </div>
-                  <div className="space-y-1">
-                    {facts
-                      .filter((f) => f.category === cat.value)
-                      .map((fact) => (
-                        <div
-                          key={fact.id}
-                          className="flex items-center gap-2 group p-1.5 rounded-md hover:bg-muted/50 transition-colors"
-                        >
-                          <span className="text-sm flex-1">{fact.content}</span>
-                          {fact.source === 'ai_extracted' && (
-                            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-medium shrink-0">
-                              AI
-                            </span>
-                          )}
-                          <button
-                            onClick={() => handleDeleteFact(fact.id)}
-                            className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-destructive/10 hover:text-destructive shrink-0"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      ))}
-                  </div>
-                </div>
+        {!isLoadingFacts && facts.length > 0 && (
+          <CardContent className="pt-0">
+            <div className="flex flex-wrap gap-1.5">
+              {facts.slice(0, 4).map((fact) => (
+                <span
+                  key={fact.id}
+                  className="text-xs px-2 py-1 rounded-full bg-muted text-muted-foreground truncate max-w-[180px]"
+                >
+                  {fact.content}
+                </span>
               ))}
+              {facts.length > 4 && (
+                <span className="text-xs px-2 py-1 rounded-full bg-muted text-muted-foreground">
+                  +{facts.length - 4} more
+                </span>
+              )}
             </div>
-          )}
+          </CardContent>
+        )}
+      </Card>
 
-          {/* Add fact form */}
-          <div className="mt-4 pt-3 border-t border-border/50 space-y-2">
-            <div className="flex gap-2">
-              <select
-                value={newFactCategory}
-                onChange={(e) => setNewFactCategory(e.target.value as FactCategory)}
-                className="h-8 rounded-md border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring shrink-0"
-              >
-                {FACT_CATEGORIES.map((cat) => (
-                  <option key={cat.value} value={cat.value}>
-                    {cat.label}
-                  </option>
-                ))}
-              </select>
-              <Input
-                value={newFactContent}
-                onChange={(e) => setNewFactContent(e.target.value)}
-                placeholder="e.g., Is vegetarian"
-                className="h-8 text-sm"
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && newFactContent.trim()) {
-                    handleAddFact();
-                  }
-                }}
-              />
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleAddFact}
-                disabled={!newFactContent.trim() || isAddingFact}
-                className="h-8 px-2 shrink-0"
-              >
-                {isAddingFact ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Plus className="h-3.5 w-3.5" />
-                )}
-              </Button>
+      {/* About You Drawer — full facts management */}
+      <Drawer open={showFacts} onOpenChange={setShowFacts}>
+        <DrawerContent style={{ height: '85dvh' }}>
+          <div className="flex flex-col h-full overflow-hidden">
+            <DrawerHeader className="shrink-0">
+              <DrawerTitle className="flex items-center gap-2">
+                <Sparkles className="h-5 w-5 text-primary" />
+                About You
+              </DrawerTitle>
+              <p className="text-sm text-muted-foreground">Things the AI knows about you to personalize your experience</p>
+            </DrawerHeader>
+
+            <div className="flex-1 overflow-y-auto px-4 pb-4">
+              {facts.length === 0 ? (
+                <div className="text-center py-8 space-y-2">
+                  <p className="text-sm text-muted-foreground">
+                    Chat with your AI assistant and it will learn about you over time.
+                  </p>
+                  <p className="text-xs text-muted-foreground/70">
+                    You can also add facts manually below.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {FACT_CATEGORIES.filter((cat) => facts.some((f) => f.category === cat.value)).map((cat) => (
+                    <div key={cat.value}>
+                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-2">
+                        {cat.label}
+                      </div>
+                      <div className="space-y-1">
+                        {facts
+                          .filter((f) => f.category === cat.value)
+                          .map((fact) => (
+                            <div
+                              key={fact.id}
+                              className="flex items-center gap-2 p-2 rounded-md hover:bg-muted/50 transition-colors"
+                            >
+                              <span className="text-sm flex-1">{fact.content}</span>
+                              {fact.source === 'ai_extracted' && (
+                                <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-medium shrink-0">
+                                  AI
+                                </span>
+                              )}
+                              <button
+                                onClick={() => handleDeleteFact(fact.id)}
+                                className="p-1 rounded text-muted-foreground/60 hover:bg-destructive/10 hover:text-destructive shrink-0 transition-colors"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Add fact form — pinned at bottom */}
+            <div className="shrink-0 px-4 pb-6 pt-3 border-t border-border/50 space-y-2">
+              <div className="flex gap-2">
+                <select
+                  value={newFactCategory}
+                  onChange={(e) => setNewFactCategory(e.target.value as FactCategory)}
+                  className="h-9 rounded-md border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring shrink-0"
+                >
+                  {FACT_CATEGORIES.map((cat) => (
+                    <option key={cat.value} value={cat.value}>
+                      {cat.label}
+                    </option>
+                  ))}
+                </select>
+                <Input
+                  value={newFactContent}
+                  onChange={(e) => setNewFactContent(e.target.value)}
+                  placeholder="e.g., Is vegetarian"
+                  className="h-9 text-sm"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && newFactContent.trim()) {
+                      handleAddFact();
+                    }
+                  }}
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleAddFact}
+                  disabled={!newFactContent.trim() || isAddingFact}
+                  className="h-9 px-2.5 shrink-0"
+                >
+                  {isAddingFact ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Plus className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+              </div>
             </div>
           </div>
-        </CardContent>
-      </Card>
+        </DrawerContent>
+      </Drawer>
 
       {/* Export Data Card */}
       <Card className="w-full max-w-md animate-scale-in animation-delay-100 border-border/50 shadow-lg">
@@ -707,7 +754,7 @@ export function UserProfile({ user, onLogout, onManagePresets }: UserProfileProp
       {/* Version info */}
       <div className="flex justify-center mt-4 animate-fade-in animation-delay-700">
         <span className="text-xs text-muted-foreground/60 font-mono">
-          v3.1.0
+          v3.1.1
         </span>
       </div>
     </div>
