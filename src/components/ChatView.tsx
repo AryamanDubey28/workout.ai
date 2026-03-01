@@ -70,12 +70,13 @@ export function ChatView() {
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [showSidebar, setShowSidebar] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [suggestions] = useState(() => getRandomSuggestions(3));
+  const [suggestions, setSuggestions] = useState(() => getRandomSuggestions(3));
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const streamingMsgIdRef = useRef<string | null>(null);
+  const isSubmittingRef = useRef(false);
   const isFirstMountRef = useRef(true);
 
   const scrollToBottom = useCallback(() => {
@@ -231,8 +232,13 @@ export function ChatView() {
   const handleNewChat = useCallback(() => {
     setActiveConversationId(null);
     setMessages([]);
+    setInput('');
     setError(null);
     setShowSidebar(false);
+    setSuggestions(getRandomSuggestions(3));
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto';
+    }
   }, []);
 
   const handleSelectConversation = async (conv: Conversation) => {
@@ -277,10 +283,13 @@ export function ChatView() {
     }
   };
 
-  const handleSubmit = async (e?: React.FormEvent) => {
+  const handleSubmit = async (e?: React.FormEvent, overrideMessage?: string) => {
     e?.preventDefault();
-    const trimmed = input.trim();
-    if (!trimmed || isLoading || isStreaming) return;
+    const trimmed = (overrideMessage ?? input).trim();
+    if (!trimmed || isLoading || isStreaming || isSubmittingRef.current) return;
+
+    // Ref-based lock to prevent race conditions (state updates are async)
+    isSubmittingRef.current = true;
 
     // Immediately lock UI to prevent double-submit
     setInput('');
@@ -396,6 +405,7 @@ export function ChatView() {
       setIsStreaming(false);
       streamingMsgIdRef.current = null;
       abortControllerRef.current = null;
+      isSubmittingRef.current = false;
     }
   };
 
@@ -414,8 +424,7 @@ export function ChatView() {
   };
 
   const handleSuggestionClick = (suggestion: string) => {
-    setInput(suggestion);
-    inputRef.current?.focus();
+    handleSubmit(undefined, suggestion);
   };
 
   // Filter out legacy empty "New Chat" conversations from sidebar
