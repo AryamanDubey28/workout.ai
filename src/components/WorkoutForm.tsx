@@ -294,6 +294,9 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
 
   // Bug #5: renamed handleCancel → handleClose for clarity
   const handleClose = async () => {
+    if (isSaving) return;
+    // Cancel any pending server autosave so it doesn't race with the explicit save
+    if (serverSaveTimeoutRef.current) { clearTimeout(serverSaveTimeoutRef.current); serverSaveTimeoutRef.current = null; }
     if (hasUnsavedChanges) {
       try {
         setIsSaving(true);
@@ -610,8 +613,8 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
               <BookTemplate className="h-4 w-4" />
             </Button>
           )}
-          <Button onClick={handleClose} className="px-6 h-10 shrink-0">
-            Done
+          <Button onClick={handleClose} disabled={isSaving} className="px-6 h-10 shrink-0">
+            {isSaving ? 'Saving...' : 'Done'}
           </Button>
         </div>
         </div>
