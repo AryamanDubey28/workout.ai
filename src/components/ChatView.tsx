@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Send, Loader2, MessageCircle, Bot, Plus, PanelLeft, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { ChatMessage } from '@/types/meal';
+import { useScrollDirection } from '@/hooks/useScrollDirection';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -78,6 +79,18 @@ export function ChatView() {
   const streamingMsgIdRef = useRef<string | null>(null);
   const isSubmittingRef = useRef(false);
   const isFirstMountRef = useRef(true);
+
+  const { barsHidden: headerHidden } = useScrollDirection({
+    enabled: messages.length > 0,
+    scrollRef: scrollAreaRef,
+    threshold: 10,
+    topThreshold: 50,
+  });
+
+  const activeTitle = useMemo(() => {
+    if (!activeConversationId) return null;
+    return conversations.find(c => c.id === activeConversationId)?.title ?? null;
+  }, [activeConversationId, conversations]);
 
   const scrollToBottom = useCallback(() => {
     if (scrollAreaRef.current) {
@@ -433,31 +446,37 @@ export function ChatView() {
   return (
     <div className="flex flex-col h-full animate-fade-in-blur">
       {/* Header */}
-      <div className="flex items-center justify-between pb-3 border-b mb-3 shrink-0">
-        <div className="flex items-center gap-3">
+      <div className={`flex items-center justify-between pb-3 border-b mb-3 shrink-0 transition-all duration-300 ease-in-out ${
+        headerHidden ? '-mt-14 opacity-0 pointer-events-none' : 'mt-0 opacity-100'
+      }`}>
+        <div className="flex items-center gap-3 min-w-0">
           <Button
             variant="ghost"
             size="sm"
             onClick={() => setShowSidebar(true)}
-            className="h-9 w-9 p-0 rounded-lg"
+            className="h-9 w-9 p-0 rounded-lg shrink-0"
           >
             <PanelLeft className="h-5 w-5" />
           </Button>
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-              <Bot className="h-4 w-4 text-primary" />
+          {activeTitle ? (
+            <h3 className="text-sm font-semibold truncate">{activeTitle}</h3>
+          ) : (
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                <Bot className="h-4 w-4 text-primary" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold leading-none">Workout Assistant</h3>
+                <p className="text-[11px] text-muted-foreground mt-0.5">AI-powered fitness coach</p>
+              </div>
             </div>
-            <div>
-              <h3 className="text-sm font-semibold leading-none">Workout Assistant</h3>
-              <p className="text-[11px] text-muted-foreground mt-0.5">AI-powered fitness coach</p>
-            </div>
-          </div>
+          )}
         </div>
         <Button
           variant="ghost"
           size="sm"
           onClick={handleNewChat}
-          className="h-9 w-9 p-0 rounded-lg"
+          className="h-9 w-9 p-0 rounded-lg shrink-0"
           title="New Chat"
         >
           <Plus className="h-5 w-5" />
