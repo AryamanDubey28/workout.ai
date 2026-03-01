@@ -1,11 +1,12 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Send, Loader2, MessageCircle, Bot, Plus, PanelLeft, Trash2, ImagePlus, X } from 'lucide-react';
+import { Send, Loader2, MessageCircle, Bot, Plus, PanelLeft, Trash2, ImagePlus, X, Sparkles, Shield, Flame, BookOpen, Heart, FlaskConical, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { ChatMessage } from '@/types/meal';
+import { AiSoul, SoulPresetId } from '@/types/user';
 import { useScrollDirection } from '@/hooks/useScrollDirection';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -46,6 +47,43 @@ function getRandomSuggestions(count: number = 3): string[] {
 }
 
 const CACHE_ACTIVE_CONV_KEY = 'workout-ai-active-conversation-id';
+const CACHE_SOUL_KEY = 'workout-ai-soul';
+
+const PRESET_ICONS: Record<SoulPresetId, typeof Shield> = {
+  drill_sergeant: Shield,
+  hype_coach: Flame,
+  wise_mentor: BookOpen,
+  friendly_trainer: Heart,
+  science_nerd: FlaskConical,
+};
+
+const SOUL_PRESETS: { id: SoulPresetId; name: string; shortDescription: string }[] = [
+  {
+    id: 'drill_sergeant',
+    name: 'Drill Sergeant',
+    shortDescription: 'Tough love, no excuses. Military-style accountability that pushes you to your limits.',
+  },
+  {
+    id: 'hype_coach',
+    name: 'Hype Coach',
+    shortDescription: 'Maximum energy, maximum hype. Gets excited about every rep and every meal logged.',
+  },
+  {
+    id: 'wise_mentor',
+    name: 'Wise Mentor',
+    shortDescription: 'Calm, philosophical guidance. Focuses on the long game, habits, and mindset.',
+  },
+  {
+    id: 'friendly_trainer',
+    name: 'Friendly Trainer',
+    shortDescription: 'Warm, supportive, and approachable. Like a best friend who\'s also a certified PT.',
+  },
+  {
+    id: 'science_nerd',
+    name: 'Science Nerd',
+    shortDescription: 'Data-driven, evidence-based coaching. Loves percentages, studies, and optimization.',
+  },
+];
 
 function formatRelativeDate(date: Date): string {
   const now = new Date();
@@ -74,6 +112,19 @@ export function ChatView() {
   const [suggestions, setSuggestions] = useState(() => getRandomSuggestions(3));
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+  const [soul, setSoul] = useState<AiSoul | null>(() => {
+    try {
+      const cached = localStorage.getItem(CACHE_SOUL_KEY);
+      return cached ? JSON.parse(cached) : null;
+    } catch { return null; }
+  });
+  const [isLoadingSoul, setIsLoadingSoul] = useState(() => {
+    try { return !localStorage.getItem(CACHE_SOUL_KEY); } catch { return true; }
+  });
+  const [isBuildingSoul, setIsBuildingSoul] = useState(false);
+  const [customSoulInput, setCustomSoulInput] = useState('');
+  const [showCustomInput, setShowCustomInput] = useState(false);
+  const [soulError, setSoulError] = useState<string | null>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -194,6 +245,82 @@ export function ChatView() {
     }
     loadConversations();
   }, []);
+
+  // Fetch soul on mount
+  useEffect(() => {
+    async function fetchSoul() {
+      try {
+        const res = await fetch('/api/soul');
+        if (res.ok) {
+          const data = await res.json();
+          setSoul(data.soul || null);
+          try {
+            if (data.soul) {
+              localStorage.setItem(CACHE_SOUL_KEY, JSON.stringify(data.soul));
+            } else {
+              localStorage.removeItem(CACHE_SOUL_KEY);
+            }
+          } catch {}
+        }
+      } catch (err) {
+        console.error('Failed to fetch soul:', err);
+      } finally {
+        setIsLoadingSoul(false);
+      }
+    }
+    fetchSoul();
+  }, []);
+
+  const handleSelectPreset = async (presetId: SoulPresetId) => {
+    setIsBuildingSoul(true);
+    setSoulError(null);
+    try {
+      const res = await fetch('/api/soul', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ presetId }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSoul(data.soul);
+        try { localStorage.setItem(CACHE_SOUL_KEY, JSON.stringify(data.soul)); } catch {}
+      } else {
+        const errData = await res.json();
+        setSoulError(errData.error || 'Failed to set personality');
+      }
+    } catch {
+      setSoulError('Failed to set personality');
+    } finally {
+      setIsBuildingSoul(false);
+    }
+  };
+
+  const handleCustomSoulSubmit = async () => {
+    if (!customSoulInput.trim()) return;
+    setIsBuildingSoul(true);
+    setSoulError(null);
+    try {
+      const res = await fetch('/api/soul', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customInput: customSoulInput.trim() }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSoul(data.soul);
+        try { localStorage.setItem(CACHE_SOUL_KEY, JSON.stringify(data.soul)); } catch {}
+        setCustomSoulInput('');
+        setShowCustomInput(false);
+      } else {
+        const errData = await res.json();
+        setSoulError(errData.error || 'Failed to set personality');
+      }
+    } catch {
+      setSoulError('Failed to set personality');
+    } finally {
+      setIsBuildingSoul(false);
+    }
+  };
 
   const loadMessages = async (conversationId: string) => {
     // Show cached messages instantly
@@ -504,8 +631,8 @@ export function ChatView() {
                 <Bot className="h-4 w-4 text-primary" />
               </div>
               <div>
-                <h3 className="text-sm font-semibold leading-none">Workout Assistant</h3>
-                <p className="text-[11px] text-muted-foreground mt-0.5">AI-powered fitness coach</p>
+                <h3 className="text-sm font-semibold leading-none">{soul ? soul.name : 'Workout Assistant'}</h3>
+                <p className="text-[11px] text-muted-foreground mt-0.5">{soul ? 'Your AI coach' : 'AI-powered fitness coach'}</p>
               </div>
             </div>
           )}
@@ -531,28 +658,135 @@ export function ChatView() {
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
           </div>
         ) : messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 animate-slide-up">
-            <div className="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center mb-4 animate-scale-in animation-delay-150">
-              <MessageCircle className="h-8 w-8 text-primary" />
+          !soul && !isLoadingSoul && !activeConversationId ? (
+            /* Personality Picker — shown when no soul is set and no active conversation */
+            <div className="flex flex-col items-center py-6 px-2 animate-slide-up">
+              {isBuildingSoul ? (
+                <div className="flex flex-col items-center justify-center py-16 animate-fade-in-blur">
+                  <div className="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center mb-4">
+                    <Sparkles className="h-8 w-8 text-primary animate-pulse" />
+                  </div>
+                  <h3 className="text-base font-semibold mb-1.5">Building your AI coach...</h3>
+                  <p className="text-muted-foreground text-xs text-center max-w-xs">
+                    Crafting a unique personality just for you. This takes a few seconds.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="w-14 h-14 bg-primary/10 rounded-2xl flex items-center justify-center mb-3 animate-scale-in">
+                    <Sparkles className="h-7 w-7 text-primary" />
+                  </div>
+                  <h3 className="text-base font-semibold mb-1 animate-slide-up animation-delay-150">
+                    Choose your AI coach
+                  </h3>
+                  <p className="text-muted-foreground text-xs text-center max-w-xs mb-5 animate-slide-up animation-delay-300">
+                    Pick a personality that matches your vibe. You can always change it later.
+                  </p>
+
+                  {soulError && (
+                    <div className="mb-3 p-2.5 bg-destructive/10 border border-destructive/20 rounded-xl text-xs text-destructive w-full max-w-sm">
+                      {soulError}
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-2 w-full max-w-sm animate-slide-up animation-delay-300">
+                    {SOUL_PRESETS.map((preset) => {
+                      const Icon = PRESET_ICONS[preset.id];
+                      return (
+                        <button
+                          key={preset.id}
+                          onClick={() => handleSelectPreset(preset.id)}
+                          className="flex flex-col items-start gap-1.5 p-3 rounded-xl border border-border bg-background hover:bg-secondary/80 hover:border-primary/30 transition-all text-left group"
+                        >
+                          <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
+                            <Icon className="h-4 w-4 text-primary" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium leading-tight">{preset.name}</p>
+                            <p className="text-[11px] text-muted-foreground leading-snug mt-0.5">
+                              {preset.shortDescription}
+                            </p>
+                          </div>
+                        </button>
+                      );
+                    })}
+
+                    {/* Custom option */}
+                    <button
+                      onClick={() => setShowCustomInput(true)}
+                      className="flex flex-col items-start gap-1.5 p-3 rounded-xl border border-dashed border-border bg-background hover:bg-secondary/80 hover:border-primary/30 transition-all text-left group col-span-2"
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
+                          <Pencil className="h-4 w-4 text-primary" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium">Describe your own</p>
+                          <p className="text-[11px] text-muted-foreground">Tell us what kind of coach you want</p>
+                        </div>
+                      </div>
+                    </button>
+                  </div>
+
+                  {/* Custom input area */}
+                  {showCustomInput && (
+                    <div className="mt-3 w-full max-w-sm animate-slide-up space-y-2">
+                      <textarea
+                        value={customSoulInput}
+                        onChange={(e) => setCustomSoulInput(e.target.value)}
+                        placeholder="Describe your ideal AI coach... (e.g., 'A chill surfer dude who's really into functional fitness and clean eating')"
+                        rows={3}
+                        className="w-full resize-none rounded-xl border border-input bg-background px-3 py-2.5 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      />
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => { setShowCustomInput(false); setCustomSoulInput(''); }}
+                          className="flex-1 h-9 text-xs rounded-lg"
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={handleCustomSoulSubmit}
+                          disabled={!customSoulInput.trim()}
+                          className="flex-1 h-9 text-xs rounded-lg"
+                        >
+                          <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+                          Create
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
-            <h3 className="text-base font-semibold mb-1.5 animate-slide-up animation-delay-300">
-              How can I help?
-            </h3>
-            <p className="text-muted-foreground text-xs px-6 max-w-xs mx-auto text-center animate-slide-up animation-delay-500">
-              Ask about your workouts, nutrition, or training goals. I have context of your recent sessions.
-            </p>
-            <div className="mt-5 flex flex-wrap gap-2 justify-center px-4 animate-slide-up animation-delay-500">
-              {suggestions.map((suggestion) => (
-                <button
-                  key={suggestion}
-                  onClick={() => handleSuggestionClick(suggestion)}
-                  className="text-xs px-3 py-1.5 rounded-full border border-border bg-background hover:bg-secondary transition-colors interactive-scale"
-                >
-                  {suggestion}
-                </button>
-              ))}
+          ) : (
+            /* Normal empty state — soul exists or viewing an existing conversation */
+            <div className="flex flex-col items-center justify-center py-12 animate-slide-up">
+              <div className="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center mb-4 animate-scale-in animation-delay-150">
+                <MessageCircle className="h-8 w-8 text-primary" />
+              </div>
+              <h3 className="text-base font-semibold mb-1.5 animate-slide-up animation-delay-300">
+                How can I help?
+              </h3>
+              <p className="text-muted-foreground text-xs px-6 max-w-xs mx-auto text-center animate-slide-up animation-delay-500">
+                {soul ? `Your ${soul.name} is ready. Ask anything about workouts, nutrition, or training.` : 'Ask about your workouts, nutrition, or training goals. I have context of your recent sessions.'}
+              </p>
+              <div className="mt-5 flex flex-wrap gap-2 justify-center px-4 animate-slide-up animation-delay-500">
+                {suggestions.map((suggestion) => (
+                  <button
+                    key={suggestion}
+                    onClick={() => handleSuggestionClick(suggestion)}
+                    className="text-xs px-3 py-1.5 rounded-full border border-border bg-background hover:bg-secondary transition-colors interactive-scale"
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )
         ) : (
           <div className="space-y-1">
             {messages.map((msg) => (

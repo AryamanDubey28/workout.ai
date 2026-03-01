@@ -36,3 +36,15 @@ export interface UserFact {
   source: FactSource;
   createdAt: Date;
 }
+
+export type SoulPresetId = 'drill_sergeant' | 'hype_coach' | 'wise_mentor' | 'friendly_trainer' | 'science_nerd';
+
+export interface AiSoul {
+  id: string;
+  presetId: SoulPresetId | null;
+  name: string;
+  soulContent: string;
+  userInput: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}

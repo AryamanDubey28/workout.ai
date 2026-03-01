@@ -13,10 +13,11 @@ import {
   updateConversationTitle,
   touchConversation,
   getUserFacts,
+  getAiSoul,
 } from '@/lib/db';
 import OpenAI from 'openai';
 import { runPersonalityAgent } from '@/lib/agents/personalityAgent';
-import { UserFact } from '@/types/user';
+import { UserFact, AiSoul } from '@/types/user';
 
 function getOpenAI() {
   return new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -515,7 +516,7 @@ export async function POST(request: NextRequest) {
     twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
     const twoWeeksAgoKey = twoWeeksAgo.toISOString().split('T')[0];
 
-    const [dbMessages, userProfile, workouts, todayMeals, mealHistory, macroGoal, userFacts] = await Promise.all([
+    const [dbMessages, userProfile, workouts, todayMeals, mealHistory, macroGoal, userFacts, aiSoul] = await Promise.all([
       getChatMessages(conversationId, 50),
       getUserById(session.userId),
       getUserWorkouts(session.userId),
@@ -523,6 +524,7 @@ export async function POST(request: NextRequest) {
       getUserMealsForDateRange(session.userId, twoWeeksAgoKey, todayKey),
       getMacroGoal(session.userId),
       getUserFacts(session.userId),
+      getAiSoul(session.userId),
     ]);
 
     // Auto-generate title from first user message (or defer for generic messages)
@@ -568,8 +570,17 @@ export async function POST(request: NextRequest) {
       hasImage: !!imageContent,
     };
 
-    const systemMessage = `You are a knowledgeable fitness and workout assistant for ${session.name}. You have access to their profile metrics (age, weight, height, sex, activity level), their complete workout history (including workout notes), today's meals, the past 2 weeks of meal history, and their nutrition goals. You can provide advice on training, form, programming, recovery, and nutrition.
+    // Build personality section — soul overrides default tone if present
+    const personalitySection = aiSoul
+      ? `\n--- PERSONALITY ---\n${aiSoul.soulContent}\nStay in this personality at ALL times. Every response should reflect this voice and coaching style.\n--- END PERSONALITY ---\n`
+      : '';
 
+    const defaultTone = aiSoul
+      ? '' // Soul replaces the default tone instruction
+      : '\nBe concise, friendly, and helpful. Reference specific workouts, meals, and goals when relevant. If they ask about progress, analyze trends in their data. If they ask about nutrition, factor in their goal type, remaining macros for the day, and recent eating patterns from the meal history. Keep responses focused and practical.\n';
+
+    const systemMessage = `You are a knowledgeable fitness and workout assistant for ${session.name}. You have access to their profile metrics (age, weight, height, sex, activity level), their complete workout history (including workout notes), today's meals, the past 2 weeks of meal history, and their nutrition goals. You can provide advice on training, form, programming, recovery, and nutrition.
+${personalitySection}
 Current date context: ${currentDateUtcLong} (UTC date key: ${todayKey}, UTC timestamp: ${currentDateUtcIso}). Use this to reason about recency and interpret terms like today, yesterday, and last workout.
 Unit rules: bodyweight in the user profile is stored in pounds (lb). Workout exercise loads are stored in kilograms (kg), unless marked as Bodyweight/BW. Keep those units accurate in responses.
 
@@ -586,9 +597,7 @@ Meal history (past 2 weeks, each line is one day with daily totals and individua
 ${mealHistoryContext}
 
 ${goalContext}
-
-Be concise, friendly, and helpful. Reference specific workouts, meals, and goals when relevant. If they ask about progress, analyze trends in their data. If they ask about nutrition, factor in their goal type, remaining macros for the day, and recent eating patterns from the meal history. Keep responses focused and practical.
-
+${defaultTone}
 Formatting rules: You may use Markdown for structure. Use **bold** for emphasis, headings (##, ###) for sections, bullet points and numbered lists where helpful. Keep formatting clean and not excessive.`;
 
     const model = 'gpt-5.2';
