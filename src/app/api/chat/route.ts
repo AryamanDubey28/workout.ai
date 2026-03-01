@@ -348,6 +348,24 @@ function generateTitle(message: string): string {
   return (lastSpace > 20 ? truncated.substring(0, lastSpace) : truncated) + '...';
 }
 
+function isGenericMessage(message: string): boolean {
+  const cleaned = message.replace(/\s+/g, ' ').trim().toLowerCase();
+  const wordCount = cleaned.split(/\s+/).length;
+  const genericPhrases = ['hi', 'hey', 'hello', 'sup', 'yo', 'test', 'ok', 'okay', 'thanks', 'ty', 'help', 'hm', 'hmm'];
+  return wordCount <= 2 || genericPhrases.includes(cleaned);
+}
+
+function generateTitleFromResponse(response: string): string {
+  // Take the first sentence or first 50 chars of the AI response
+  const firstLine = response.split('\n').find(l => l.trim().length > 0) || response;
+  // Strip markdown formatting
+  const plain = firstLine.replace(/[#*_`>\-]/g, '').replace(/\s+/g, ' ').trim();
+  if (plain.length <= 50) return plain;
+  const truncated = plain.substring(0, 50);
+  const lastSpace = truncated.lastIndexOf(' ');
+  return (lastSpace > 20 ? truncated.substring(0, lastSpace) : truncated) + '...';
+}
+
 // GET /api/chat - Load messages for a conversation
 export async function GET(request: NextRequest) {
   try {
@@ -450,9 +468,11 @@ export async function POST(request: NextRequest) {
       getMacroGoal(session.userId),
     ]);
 
-    // Auto-generate title from first user message
+    // Auto-generate title from first user message (or defer for generic messages)
     const userMessages = dbMessages.filter(m => m.role === 'user');
-    if (userMessages.length === 1) {
+    const isFirstMessage = userMessages.length === 1;
+    const deferTitle = isFirstMessage && isGenericMessage(message);
+    if (isFirstMessage && !deferTitle) {
       const title = generateTitle(message);
       await updateConversationTitle(session.userId, conversationId, title);
     }
@@ -531,6 +551,11 @@ Formatting rules: You may use Markdown for structure. Use **bold** for emphasis,
           }
           // Save complete assistant message to DB after stream finishes
           await saveChatMessage(session.userId, conversationId, 'assistant', fullContent);
+          // For generic first messages, generate title from AI response
+          if (deferTitle && fullContent.trim()) {
+            const title = generateTitleFromResponse(fullContent);
+            await updateConversationTitle(session.userId, conversationId, title);
+          }
           controller.close();
         } catch (err) {
           logOpenAIError('chat-stream', err, logMeta);

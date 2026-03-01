@@ -18,9 +18,11 @@ This is a **workout tracking & nutrition PWA** built with Next.js 15 (App Router
 ### Key layers
 
 - **`src/app/page.tsx`** — Single-page app. All top-level state lives here (user, workouts, UI flags, active tab) and is passed down as props. No external state management library; everything uses React hooks.
+- **`src/app/layout.tsx`** — Root layout with `next-themes` ThemeProvider (light/dark/system), Geist font family, PWA metadata.
 - **`src/app/api/`** — RESTful API routes (see API section below).
 - **`src/lib/auth.ts`** — Custom JWT auth using `jose`. Tokens stored in HTTP-only cookies (`workout-ai-session`). Sessions expire after 7 days.
 - **`src/lib/db.ts`** — Direct SQL queries via `@vercel/postgres` (no ORM). Contains all database operations and table initialization (`initDatabase()`).
+- **`src/lib/agents/`** — LangGraph-based AI agents (see AI agents section below).
 - **`src/middleware.ts`** — Protects routes by validating JWT. Auth API routes and static files are excluded.
 - **`src/types/`** — Shared TypeScript types: `workout.ts` (Exercise, Workout, WorkoutPreset, SplitReminder), `meal.ts` (Meal, Macros, MacroGoal, ChatMessage), `user.ts`.
 
@@ -39,17 +41,22 @@ All protected routes follow: `getSessionFromCookie()` → `initDatabase()` → d
 
 ### Database
 
-PostgreSQL (Vercel Postgres / Neon). Tables: `users`, `workouts`, `exercise_patterns`, `common_exercises`, `meals`, `macro_goals`, `workout_presets`, `chat_conversations`, `chat_messages`. Schema is auto-initialized in `initDatabase()` with `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for migrations.
+PostgreSQL (Vercel Postgres / Neon). Tables: `users`, `workouts`, `exercise_patterns`, `common_exercises`, `meals`, `macro_goals`, `workout_presets`, `chat_conversations`, `chat_messages`, `food_suggestions`. Schema is auto-initialized in `initDatabase()` with `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for migrations.
 
 **Important:** The `@vercel/postgres` `sql` template tag does not support passing arrays as parameters. Use SQL subqueries instead of `ANY($array)` syntax.
 
 Exercises are stored as JSONB in both `workouts` and `workout_presets` tables. Exercise objects include per-set weight/reps arrays (`weightsPerSet`, `repsPerSet`) and effective reps fields.
 
-### OpenAI integration
+### AI integration
 
-Uses the `openai` npm package. Two AI features:
+Two packages are used for AI features:
+- **`openai`** — Direct SDK usage for chat streaming and meal image analysis.
+- **`@langchain/langgraph` + `@langchain/openai`** — LangGraph state machines for multi-step AI agents with Zod structured output.
+
+Features:
 - **Chat assistant** (`/api/chat`) — Streaming responses via OpenAI with user's workout history, today's meals, and macro goals as context. Multi-conversation support with auto-generated titles.
 - **Meal analysis** (`/api/meals/analyze`) — Accepts text and/or image (base64) to estimate macros via OpenAI vision. Returns structured JSON with per-item breakdown.
+- **Food suggestion agent** (`src/lib/agents/foodSuggestionAgent.ts`) — LangGraph StateGraph with 3 nodes (fetchData → analyze → save). Analyzes 3 weeks of meal history to suggest frequently logged meals for the Food Bank. Uses `ChatOpenAI.withStructuredOutput(zodSchema)` for typed responses. Compiled graph is cached as a singleton.
 
 ### Component patterns
 
@@ -59,8 +66,19 @@ Uses the `openai` npm package. Two AI features:
 - **`ChatView.tsx`** — AI chat interface with multi-conversation support and streaming responses.
 - **`PresetManager.tsx` / `PresetForm.tsx` / `PresetPicker.tsx`** — Workout preset CRUD with drag-to-reorder.
 - **`SplitReminderBanner.tsx`** — Sequential split tracking via `getNextSplitPreset()` — matches last workout name to preset names, cycles through sort_order.
-- **`useExerciseCache.ts`** — Hook that caches exercise autocomplete data in localStorage for 5 minutes.
 - **UI primitives** in `src/components/ui/` are shadcn/ui (New York style, configured in `components.json`).
+
+### Hooks (`src/hooks/`)
+
+- **`useExerciseCache.ts`** — 5-minute localStorage cache for exercise autocomplete. Falls back to stale cache on network failure. Methods: `searchExercises()`, `invalidateCache()`, `refreshCache()`.
+- **`useScrollDirection.ts`** — Detects scroll direction (with configurable threshold) to hide/show bottom nav and header bars. Uses `requestAnimationFrame` for performance.
+- **`useWorkoutColors.ts`** — Derives workout color categories from workouts + presets. Manages color overrides persisted in localStorage.
+
+### Utility modules (`src/lib/`)
+
+- **`dateGrouping.ts`** — Groups workouts by relative date (Today, Yesterday, This Week, Last Week, month sections).
+- **`calendarColors.ts`** — 10-color palette with consistent hash-based assignment. Fuzzy matches workout names to preset names. Supports localStorage color overrides.
+- **`mealUtils.ts`** — Auto-categorizes meals by time of day (breakfast < 12:30, lunch, snack, dinner). Time input conversion helpers.
 
 ### Tabs / Navigation
 
@@ -85,9 +103,13 @@ Configured via `@ducanh2912/next-pwa` in `next.config.js`. Auth routes are exclu
 
 `@/*` maps to `./src/*` (configured in tsconfig.json).
 
+### Tailwind CSS 4
+
+Theme is defined via inline `@theme` in `src/app/globals.css` (no `tailwind.config.js`). Uses CSS variables for colors, radii, and spacing. Base color: slate.
+
 ### ESLint
 
-`@typescript-eslint/no-explicit-any` and `@typescript-eslint/no-unused-vars` are disabled.
+ESLint 9 flat config (`eslint.config.mjs`). Disabled rules: `@typescript-eslint/no-explicit-any`, `@typescript-eslint/no-unused-vars`, `@typescript-eslint/no-empty-object-type`, `react/no-unescaped-entities`.
 
 ### Versioning
 

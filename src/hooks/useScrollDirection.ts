@@ -1,13 +1,15 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, type RefObject } from 'react';
 
 export function useScrollDirection({
   enabled = true,
   threshold = 10,
   topThreshold = 50,
+  scrollRef,
 }: {
   enabled?: boolean;
   threshold?: number;
   topThreshold?: number;
+  scrollRef?: RefObject<HTMLElement | null>;
 } = {}) {
   const [barsHidden, setBarsHidden] = useState(false);
   const lastScrollY = useRef(0);
@@ -16,7 +18,8 @@ export function useScrollDirection({
   const handleScroll = useCallback(() => {
     if (!ticking.current) {
       window.requestAnimationFrame(() => {
-        const currentScrollY = window.scrollY;
+        const el = scrollRef?.current;
+        const currentScrollY = el ? el.scrollTop : window.scrollY;
 
         if (currentScrollY < topThreshold) {
           setBarsHidden(false);
@@ -39,7 +42,7 @@ export function useScrollDirection({
       });
       ticking.current = true;
     }
-  }, [threshold, topThreshold]);
+  }, [threshold, topThreshold, scrollRef]);
 
   useEffect(() => {
     if (!enabled) {
@@ -47,10 +50,12 @@ export function useScrollDirection({
       return;
     }
 
-    lastScrollY.current = window.scrollY;
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, [enabled, handleScroll]);
+    const el = scrollRef?.current;
+    const target = el || window;
+    lastScrollY.current = el ? el.scrollTop : window.scrollY;
+    target.addEventListener('scroll', handleScroll, { passive: true });
+    return () => target.removeEventListener('scroll', handleScroll);
+  }, [enabled, handleScroll, scrollRef]);
 
   return { barsHidden };
 }
