@@ -1,12 +1,21 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { User } from '@/types/user';
+import { User, UserFact, FactCategory } from '@/types/user';
 import { MacroGoal, GoalType, ActivityLevel, Sex } from '@/types/meal';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { LogOut, User as UserIcon, Mail, Calendar, Weight, Target, Calculator, Save, Loader2, Check, Dumbbell, Download } from 'lucide-react';
+import { LogOut, User as UserIcon, Mail, Calendar, Weight, Target, Calculator, Save, Loader2, Check, Dumbbell, Download, Sparkles, Plus, X } from 'lucide-react';
+
+const FACT_CATEGORIES: { value: FactCategory; label: string }[] = [
+  { value: 'health', label: 'Health & Injuries' },
+  { value: 'diet', label: 'Diet & Nutrition' },
+  { value: 'goals', label: 'Goals & Motivation' },
+  { value: 'preferences', label: 'Training Preferences' },
+  { value: 'lifestyle', label: 'Lifestyle' },
+  { value: 'personality', label: 'Personality' },
+];
 
 interface UserProfileProps {
   user: User;
@@ -67,6 +76,13 @@ export function UserProfile({ user, onLogout, onManagePresets }: UserProfileProp
   const [showGoalForm, setShowGoalForm] = useState(false);
   const [exportingRange, setExportingRange] = useState<string | null>(null);
 
+  // Facts state
+  const [facts, setFacts] = useState<UserFact[]>([]);
+  const [isLoadingFacts, setIsLoadingFacts] = useState(true);
+  const [newFactContent, setNewFactContent] = useState('');
+  const [newFactCategory, setNewFactCategory] = useState<FactCategory>('personality');
+  const [isAddingFact, setIsAddingFact] = useState(false);
+
   // Form state
   const [goalType, setGoalType] = useState<GoalType>('maintenance');
   const [calories, setCalories] = useState(2000);
@@ -105,6 +121,56 @@ export function UserProfile({ user, onLogout, onManagePresets }: UserProfileProp
   useEffect(() => {
     loadGoal();
   }, [loadGoal]);
+
+  const loadFacts = useCallback(async () => {
+    try {
+      const res = await fetch('/api/facts');
+      if (res.ok) {
+        const data = await res.json();
+        setFacts(data.facts || []);
+      }
+    } catch (err) {
+      console.error('Failed to load facts:', err);
+    } finally {
+      setIsLoadingFacts(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadFacts();
+  }, [loadFacts]);
+
+  const handleAddFact = async () => {
+    if (!newFactContent.trim()) return;
+    setIsAddingFact(true);
+    try {
+      const res = await fetch('/api/facts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category: newFactCategory, content: newFactContent.trim() }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setFacts((prev) => [...prev, data.fact]);
+        setNewFactContent('');
+      }
+    } catch (err) {
+      console.error('Failed to add fact:', err);
+    } finally {
+      setIsAddingFact(false);
+    }
+  };
+
+  const handleDeleteFact = async (factId: string) => {
+    try {
+      const res = await fetch(`/api/facts/${factId}`, { method: 'DELETE' });
+      if (res.ok) {
+        setFacts((prev) => prev.filter((f) => f.id !== factId));
+      }
+    } catch (err) {
+      console.error('Failed to delete fact:', err);
+    }
+  };
 
   const handleAutoCalculate = () => {
     if (!heightCm || !user.weight || !user.age) return;
@@ -257,6 +323,107 @@ export function UserProfile({ user, onLogout, onManagePresets }: UserProfileProp
           >
             Manage Presets
           </Button>
+        </CardContent>
+      </Card>
+
+      {/* About You Card */}
+      <Card className="w-full max-w-md animate-scale-in animation-delay-100 border-border/50 shadow-lg">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Sparkles className="h-5 w-5 text-primary" />
+            About You
+          </CardTitle>
+          <CardDescription>Things the AI knows about you</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {isLoadingFacts ? (
+            <div className="flex items-center justify-center py-6">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : facts.length === 0 ? (
+            <div className="text-center py-4 space-y-2">
+              <p className="text-sm text-muted-foreground">
+                Chat with your AI assistant and it will learn about you over time.
+              </p>
+              <p className="text-xs text-muted-foreground/70">
+                You can also add facts manually below.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {FACT_CATEGORIES.filter((cat) => facts.some((f) => f.category === cat.value)).map((cat) => (
+                <div key={cat.value}>
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-1.5">
+                    {cat.label}
+                  </div>
+                  <div className="space-y-1">
+                    {facts
+                      .filter((f) => f.category === cat.value)
+                      .map((fact) => (
+                        <div
+                          key={fact.id}
+                          className="flex items-center gap-2 group p-1.5 rounded-md hover:bg-muted/50 transition-colors"
+                        >
+                          <span className="text-sm flex-1">{fact.content}</span>
+                          {fact.source === 'ai_extracted' && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-medium shrink-0">
+                              AI
+                            </span>
+                          )}
+                          <button
+                            onClick={() => handleDeleteFact(fact.id)}
+                            className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-destructive/10 hover:text-destructive shrink-0"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Add fact form */}
+          <div className="mt-4 pt-3 border-t border-border/50 space-y-2">
+            <div className="flex gap-2">
+              <select
+                value={newFactCategory}
+                onChange={(e) => setNewFactCategory(e.target.value as FactCategory)}
+                className="h-8 rounded-md border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring shrink-0"
+              >
+                {FACT_CATEGORIES.map((cat) => (
+                  <option key={cat.value} value={cat.value}>
+                    {cat.label}
+                  </option>
+                ))}
+              </select>
+              <Input
+                value={newFactContent}
+                onChange={(e) => setNewFactContent(e.target.value)}
+                placeholder="e.g., Is vegetarian"
+                className="h-8 text-sm"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && newFactContent.trim()) {
+                    handleAddFact();
+                  }
+                }}
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleAddFact}
+                disabled={!newFactContent.trim() || isAddingFact}
+                className="h-8 px-2 shrink-0"
+              >
+                {isAddingFact ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Plus className="h-3.5 w-3.5" />
+                )}
+              </Button>
+            </div>
+          </div>
         </CardContent>
       </Card>
 
@@ -540,7 +707,7 @@ export function UserProfile({ user, onLogout, onManagePresets }: UserProfileProp
       {/* Version info */}
       <div className="flex justify-center mt-4 animate-fade-in animation-delay-700">
         <span className="text-xs text-muted-foreground/60 font-mono">
-          v3.0.4
+          v3.1.0
         </span>
       </div>
     </div>

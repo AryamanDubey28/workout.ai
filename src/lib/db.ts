@@ -1,5 +1,5 @@
 import { sql } from '@vercel/postgres';
-import { User, CreateUserData } from '@/types/user';
+import { User, CreateUserData, UserFact, FactCategory, FactSource } from '@/types/user';
 import { Workout, WorkoutPreset, SplitReminder, Exercise, WorkoutType, RunData } from '@/types/workout';
 import { Meal, MealCategory, Macros, MacroGoal, SavedMeal, FoodSuggestion, SuggestionStatus } from '@/types/meal';
 import bcrypt from 'bcryptjs';
@@ -330,6 +330,22 @@ export async function initDatabase() {
 
     await sql`
       CREATE INDEX IF NOT EXISTS food_suggestions_user_status_idx ON food_suggestions(user_id, status);
+    `;
+
+    // Create user_facts table
+    await sql`
+      CREATE TABLE IF NOT EXISTS user_facts (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        category VARCHAR(20) NOT NULL DEFAULT 'personality',
+        content TEXT NOT NULL,
+        source VARCHAR(20) NOT NULL DEFAULT 'ai_extracted',
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS user_facts_user_id_idx ON user_facts(user_id);
     `;
 
     console.log('Database initialized successfully');
@@ -1526,5 +1542,89 @@ export async function clearPendingSuggestions(userId: string): Promise<void> {
     `;
   } catch (error) {
     console.error('Error clearing pending suggestions:', error);
+  }
+}
+
+// ===== USER FACT FUNCTIONS =====
+
+function mapUserFactRow(row: any): UserFact {
+  return {
+    id: row.id,
+    category: row.category as FactCategory,
+    content: row.content,
+    source: row.source as FactSource,
+    createdAt: new Date(row.created_at),
+  };
+}
+
+export async function getUserFacts(userId: string): Promise<UserFact[]> {
+  try {
+    const result = await sql`
+      SELECT id, category, content, source, created_at
+      FROM user_facts
+      WHERE user_id = ${userId}
+      ORDER BY category, created_at DESC;
+    `;
+    return result.rows.map(mapUserFactRow);
+  } catch (error) {
+    console.error('Error getting user facts:', error);
+    return [];
+  }
+}
+
+export async function createUserFact(
+  userId: string,
+  fact: { category: FactCategory; content: string; source: FactSource }
+): Promise<UserFact | null> {
+  try {
+    const result = await sql`
+      INSERT INTO user_facts (user_id, category, content, source)
+      VALUES (${userId}, ${fact.category}, ${fact.content}, ${fact.source})
+      RETURNING id, category, content, source, created_at;
+    `;
+    return mapUserFactRow(result.rows[0]);
+  } catch (error) {
+    console.error('Error creating user fact:', error);
+    return null;
+  }
+}
+
+export async function deleteUserFact(userId: string, factId: string): Promise<boolean> {
+  try {
+    const result = await sql`
+      DELETE FROM user_facts
+      WHERE id = ${factId} AND user_id = ${userId};
+    `;
+    return (result.rowCount ?? 0) > 0;
+  } catch (error) {
+    console.error('Error deleting user fact:', error);
+    return false;
+  }
+}
+
+export async function createUserFactsBatch(
+  userId: string,
+  facts: Array<{ category: FactCategory; content: string; source: FactSource }>
+): Promise<UserFact[]> {
+  const created: UserFact[] = [];
+  for (const fact of facts) {
+    const result = await createUserFact(userId, fact);
+    if (result) created.push(result);
+  }
+  return created;
+}
+
+export async function getRecentConversationIds(userId: string, limit: number = 3): Promise<string[]> {
+  try {
+    const result = await sql`
+      SELECT id FROM chat_conversations
+      WHERE user_id = ${userId}
+      ORDER BY updated_at DESC
+      LIMIT ${limit};
+    `;
+    return result.rows.map((r: any) => r.id);
+  } catch (error) {
+    console.error('Error getting recent conversation IDs:', error);
+    return [];
   }
 }
