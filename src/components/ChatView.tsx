@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Send, Loader2, MessageCircle, Bot, Plus, PanelLeft, Trash2 } from 'lucide-react';
+import { Send, Loader2, MessageCircle, Bot, Plus, PanelLeft, Trash2, ImagePlus, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -72,9 +72,12 @@ export function ChatView() {
   const [showSidebar, setShowSidebar] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState(() => getRandomSuggestions(3));
+  const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const streamingMsgIdRef = useRef<string | null>(null);
   const isSubmittingRef = useRef(false);
@@ -241,6 +244,23 @@ export function ChatView() {
     }
   };
 
+  const clearImage = useCallback(() => {
+    if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+    setSelectedImage(null);
+    setImagePreviewUrl(null);
+    if (imageInputRef.current) imageInputRef.current.value = '';
+  }, [imagePreviewUrl]);
+
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+      setSelectedImage(file);
+      setImagePreviewUrl(URL.createObjectURL(file));
+    }
+    if (imageInputRef.current) imageInputRef.current.value = '';
+  };
+
   // Instant local state reset — no API call, no lag, no duplicates
   const handleNewChat = useCallback(() => {
     setActiveConversationId(null);
@@ -249,10 +269,11 @@ export function ChatView() {
     setError(null);
     setShowSidebar(false);
     setSuggestions(getRandomSuggestions(3));
+    clearImage();
     if (inputRef.current) {
       inputRef.current.style.height = 'auto';
     }
-  }, []);
+  }, [clearImage]);
 
   const handleSelectConversation = async (conv: Conversation) => {
     if (conv.id === activeConversationId) {
@@ -299,13 +320,18 @@ export function ChatView() {
   const handleSubmit = async (e?: React.FormEvent, overrideMessage?: string) => {
     e?.preventDefault();
     const trimmed = (overrideMessage ?? input).trim();
-    if (!trimmed || isLoading || isStreaming || isSubmittingRef.current) return;
+    const hasImage = !!selectedImage;
+    if ((!trimmed && !hasImage) || isLoading || isStreaming || isSubmittingRef.current) return;
+
+    // Capture image before clearing state
+    const imageToSend = selectedImage;
 
     // Ref-based lock to prevent race conditions (state updates are async)
     isSubmittingRef.current = true;
 
     // Immediately lock UI to prevent double-submit
     setInput('');
+    clearImage();
     setIsLoading(true);
     setError(null);
 
@@ -313,10 +339,11 @@ export function ChatView() {
       inputRef.current.style.height = 'auto';
     }
 
+    const displayContent = trimmed || (hasImage ? '[Sent an image]' : '');
     const userMsg: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'user',
-      content: trimmed,
+      content: displayContent,
       createdAt: new Date(),
     };
 
@@ -360,12 +387,23 @@ export function ChatView() {
     abortControllerRef.current = abortController;
 
     try {
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: trimmed, conversationId: convId }),
-        signal: abortController.signal,
-      });
+      let fetchOptions: RequestInit;
+      if (imageToSend) {
+        const formData = new FormData();
+        formData.append('message', trimmed);
+        formData.append('conversationId', convId!);
+        formData.append('image', imageToSend);
+        fetchOptions = { method: 'POST', body: formData, signal: abortController.signal };
+      } else {
+        fetchOptions = {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: trimmed, conversationId: convId }),
+          signal: abortController.signal,
+        };
+      }
+
+      const res = await fetch('/api/chat', fetchOptions);
 
       if (!res.ok) {
         const errData = await res.json();
@@ -583,34 +621,75 @@ export function ChatView() {
         </div>
       )}
 
+      {/* Hidden file input */}
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleImageSelect}
+      />
+
       {/* Input Area */}
-      <form
-        onSubmit={handleSubmit}
-        className="flex items-end gap-2 border-t pt-3 shrink-0"
-      >
-        <textarea
-          ref={inputRef}
-          value={input}
-          onChange={handleInputChange}
-          onKeyDown={handleKeyDown}
-          placeholder="Ask about your workouts..."
-          rows={1}
-          className="flex-1 resize-none rounded-xl border border-input bg-background px-4 py-2.5 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-all"
-          disabled={isLoading || isStreaming}
-        />
-        <Button
-          type="submit"
-          size="sm"
-          disabled={!input.trim() || isLoading || isStreaming}
-          className="h-10 w-10 p-0 rounded-xl interactive-scale shrink-0"
+      <div className="border-t pt-3 shrink-0">
+        {/* Image preview */}
+        {imagePreviewUrl && (
+          <div className="mb-2 inline-flex items-start gap-1.5">
+            <div className="relative">
+              <img
+                src={imagePreviewUrl}
+                alt="Attached"
+                className="h-16 w-16 rounded-lg object-cover border border-border"
+              />
+              <button
+                type="button"
+                onClick={clearImage}
+                className="absolute -top-2 -right-2 h-6 w-6 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center shadow-sm"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        <form
+          onSubmit={handleSubmit}
+          className="flex items-end gap-2"
         >
-          {isLoading || isStreaming ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Send className="h-4 w-4" />
-          )}
-        </Button>
-      </form>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => imageInputRef.current?.click()}
+            disabled={isLoading || isStreaming}
+            className="h-11 w-11 p-0 rounded-xl shrink-0 text-muted-foreground hover:text-foreground"
+          >
+            <ImagePlus className="h-5 w-5" />
+          </Button>
+          <textarea
+            ref={inputRef}
+            value={input}
+            onChange={handleInputChange}
+            onKeyDown={handleKeyDown}
+            placeholder={selectedImage ? 'Add a message or send the image...' : 'Ask about your workouts...'}
+            rows={1}
+            className="flex-1 resize-none rounded-xl border border-input bg-background px-4 py-2.5 text-base placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-all"
+            disabled={isLoading || isStreaming}
+          />
+          <Button
+            type="submit"
+            size="sm"
+            disabled={(!input.trim() && !selectedImage) || isLoading || isStreaming}
+            className="h-11 w-11 p-0 rounded-xl interactive-scale shrink-0"
+          >
+            {isLoading || isStreaming ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
+          </Button>
+        </form>
+      </div>
 
       {/* Sidebar Sheet */}
       <Sheet open={showSidebar} onOpenChange={setShowSidebar}>
