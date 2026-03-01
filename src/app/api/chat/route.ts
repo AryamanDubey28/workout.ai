@@ -12,8 +12,11 @@ import {
   clearChatMessages,
   updateConversationTitle,
   touchConversation,
+  getUserFacts,
 } from '@/lib/db';
 import OpenAI from 'openai';
+import { runPersonalityAgent } from '@/lib/agents/personalityAgent';
+import { UserFact } from '@/types/user';
 
 function getOpenAI() {
   return new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -294,6 +297,30 @@ function formatGoalForContext(goal: any): string {
   return `Goal: ${goal.goalType} - ${goal.calories} cal, ${goal.protein}g protein, ${goal.carbs}g carbs, ${goal.fat}g fat daily`;
 }
 
+function formatUserFactsForContext(facts: UserFact[]): string {
+  if (facts.length === 0) return '';
+
+  const categoryLabels: Record<string, string> = {
+    health: 'Health & Injuries',
+    diet: 'Diet & Nutrition',
+    goals: 'Goals & Motivation',
+    preferences: 'Training Preferences',
+    lifestyle: 'Lifestyle',
+    personality: 'Personality',
+  };
+
+  const grouped = new Map<string, string[]>();
+  for (const fact of facts) {
+    const list = grouped.get(fact.category) || [];
+    list.push(fact.content);
+    grouped.set(fact.category, list);
+  }
+
+  return Array.from(grouped.entries())
+    .map(([cat, items]) => `${categoryLabels[cat] || cat}: ${items.join('; ')}`)
+    .join('\n');
+}
+
 function formatBodyweightForContext(rawWeight: unknown): string {
   const weightLbs = Number(rawWeight);
   if (!Number.isFinite(weightLbs)) return 'unknown';
@@ -486,13 +513,14 @@ export async function POST(request: NextRequest) {
     twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
     const twoWeeksAgoKey = twoWeeksAgo.toISOString().split('T')[0];
 
-    const [dbMessages, userProfile, workouts, todayMeals, mealHistory, macroGoal] = await Promise.all([
+    const [dbMessages, userProfile, workouts, todayMeals, mealHistory, macroGoal, userFacts] = await Promise.all([
       getChatMessages(conversationId, 50),
       getUserById(session.userId),
       getUserWorkouts(session.userId),
       getUserMealsByDate(session.userId, todayKey),
       getUserMealsForDateRange(session.userId, twoWeeksAgoKey, todayKey),
       getMacroGoal(session.userId),
+      getUserFacts(session.userId),
     ]);
 
     // Auto-generate title from first user message (or defer for generic messages)
@@ -512,6 +540,7 @@ export async function POST(request: NextRequest) {
     const mealContext = formatMealsForContext(todayMeals);
     const mealHistoryContext = formatMealHistoryForContext(mealHistory, todayKey);
     const goalContext = formatGoalForContext(macroGoal);
+    const factsContext = formatUserFactsForContext(userFacts);
 
     // Build chat history — inject image into the last user message if present
     const chatHistory: Array<{ role: 'user' | 'assistant'; content: any }> = dbMessages.map((m) => ({
@@ -544,7 +573,7 @@ Unit rules: bodyweight in the user profile is stored in pounds (lb). Workout exe
 
 User profile:
 ${userProfileContext}
-
+${factsContext ? `\nPersonal context about this user:\n${factsContext}\nUse these facts to personalize your responses — reference injuries, dietary needs, goals, and preferences naturally.\n` : ''}${userFacts.length < 3 ? `\nYou don't know much about this user yet. When it feels natural (not forced), ask a friendly question to learn about them — their fitness background, injuries, dietary preferences, goals, or lifestyle. Don't ask more than one discovery question per message, and only when contextually appropriate.\n` : ''}
 Here is their complete workout history (progression summary first, then recent workouts in detail, then older workouts in compact format):
 ${workoutContext}
 
@@ -595,6 +624,13 @@ Formatting rules: You may use Markdown for structure. Use **bold** for emphasis,
           if (deferTitle && fullContent.trim()) {
             const title = generateTitleFromResponse(fullContent);
             await updateConversationTitle(session.userId, conversationId, title);
+          }
+          // Fire-and-forget: extract personality facts from this conversation
+          const userMsgCount = dbMessages.filter(m => m.role === 'user').length;
+          if (userMsgCount >= 3) {
+            runPersonalityAgent(session.userId, conversationId).catch((err) =>
+              console.error('Personality agent error:', err)
+            );
           }
           controller.close();
         } catch (err) {

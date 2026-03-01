@@ -25,3 +25,14 @@ export interface LoginData {
 export interface RegisterData extends CreateUserData {
   secretPassword: string;
 }
+
+export type FactCategory = 'health' | 'diet' | 'goals' | 'preferences' | 'lifestyle' | 'personality';
+export type FactSource = 'ai_extracted' | 'user_added';
+
+export interface UserFact {
+  id: string;
+  category: FactCategory;
+  content: string;
+  source: FactSource;
+  createdAt: Date;
+}
