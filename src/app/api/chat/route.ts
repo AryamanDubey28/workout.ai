@@ -305,6 +305,8 @@ function formatUserFactsForContext(facts: UserFact[]): string {
     diet: 'Diet & Nutrition',
     goals: 'Goals & Motivation',
     preferences: 'Training Preferences',
+    training: 'Training Patterns',
+    adherence: 'Habits & Adherence',
     lifestyle: 'Lifestyle',
     personality: 'Personality',
   };
