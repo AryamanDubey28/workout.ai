@@ -1,14 +1,15 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { ChevronLeft, ChevronRight, Loader2, UtensilsCrossed, Plus, Camera, Sparkles, X, Bookmark } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Loader2, UtensilsCrossed, Plus, Camera, Sparkles, X, Bookmark, PenLine, Clock, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { MealCard } from '@/components/MealCard';
 import { MealReviewModal } from '@/components/MealReviewModal';
 import { Meal, Macros, MealItem, MacroGoal, MealCategory, MEAL_CATEGORIES, SavedMeal, FoodSuggestion } from '@/types/meal';
 import { FoodBankPicker } from '@/components/FoodBankPicker';
-import { getCategoryForTime } from '@/lib/mealUtils';
+import { getCategoryForTime, timeToInputValue, inputValueToDate } from '@/lib/mealUtils';
+import { autoCalculateMacro, validateMacroConsistency, TouchedFields } from '@/lib/macroCalc';
 
 function formatDateKey(date: Date): string {
   return date.toISOString().split('T')[0];
@@ -58,6 +59,16 @@ export function MealTracker() {
   const [mealDescription, setMealDescription] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [quickAddCategory, setQuickAddCategory] = useState<MealCategory>(() => getCategoryForTime(new Date()));
+
+  // Manual entry mode state
+  type LogMode = 'ai' | 'manual';
+  const [logMode, setLogMode] = useState<LogMode>('ai');
+  const [manualDescription, setManualDescription] = useState('');
+  const [manualMacros, setManualMacros] = useState({ calories: '', protein: '', carbs: '', fat: '' });
+  const [touchedFields, setTouchedFields] = useState<TouchedFields>({ calories: false, protein: false, carbs: false, fat: false });
+  const [autoFilledField, setAutoFilledField] = useState<keyof Macros | null>(null);
+  const [manualTime, setManualTime] = useState<string>(() => timeToInputValue(new Date()));
+  const [isSavingManual, setIsSavingManual] = useState(false);
 
   // Review modal state
   const [pendingCategory, setPendingCategory] = useState<MealCategory>(() => getCategoryForTime(new Date()));
@@ -264,6 +275,61 @@ export function MealTracker() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  const handleManualMacroChange = (field: keyof Macros, value: string) => {
+    const numValue = value === '' ? 0 : Number(value);
+    if (value !== '' && isNaN(numValue)) return;
+
+    const newManualMacros = { ...manualMacros, [field]: value };
+    const newTouched = { ...touchedFields, [field]: value !== '' };
+    setTouchedFields(newTouched);
+
+    const numericMacros: Macros = {
+      calories: newManualMacros.calories === '' ? 0 : Number(newManualMacros.calories),
+      protein: newManualMacros.protein === '' ? 0 : Number(newManualMacros.protein),
+      carbs: newManualMacros.carbs === '' ? 0 : Number(newManualMacros.carbs),
+      fat: newManualMacros.fat === '' ? 0 : Number(newManualMacros.fat),
+    };
+
+    const { macros: calculated, autoFilledField: filled } = autoCalculateMacro(numericMacros, newTouched);
+
+    if (filled) {
+      setAutoFilledField(filled);
+      setManualMacros({ ...newManualMacros, [filled]: calculated[filled].toString() });
+    } else {
+      // Clear previously auto-filled field if no longer auto-calculable
+      if (autoFilledField && !newTouched[autoFilledField]) {
+        setManualMacros({ ...newManualMacros, [autoFilledField]: '' });
+      } else {
+        setManualMacros(newManualMacros);
+      }
+      setAutoFilledField(null);
+    }
+  };
+
+  const handleManualSave = async () => {
+    if (!manualDescription.trim()) return;
+
+    const macros: Macros = {
+      calories: manualMacros.calories === '' ? 0 : Math.round(Number(manualMacros.calories)),
+      protein: manualMacros.protein === '' ? 0 : Math.round(Number(manualMacros.protein)),
+      carbs: manualMacros.carbs === '' ? 0 : Math.round(Number(manualMacros.carbs)),
+      fat: manualMacros.fat === '' ? 0 : Math.round(Number(manualMacros.fat)),
+    };
+
+    const mealDate = inputValueToDate(manualTime, selectedDate);
+
+    setIsSavingManual(true);
+    await handleConfirmMeal(manualDescription.trim(), macros, quickAddCategory, mealDate);
+    setIsSavingManual(false);
+
+    // Reset manual form
+    setManualDescription('');
+    setManualMacros({ calories: '', protein: '', carbs: '', fat: '' });
+    setTouchedFields({ calories: false, protein: false, carbs: false, fat: false });
+    setAutoFilledField(null);
+    setManualTime(timeToInputValue(new Date()));
+  };
+
   const handleAnalyze = async () => {
     if (!mealDescription.trim() && !selectedFile) return;
 
@@ -416,6 +482,18 @@ export function MealTracker() {
   );
 
   const canAnalyze = mealDescription.trim().length > 0 || selectedFile !== null;
+  const canSaveManual = manualDescription.trim().length > 0;
+
+  // Macro validation — only when all 4 fields manually entered
+  const allTouched = touchedFields.calories && touchedFields.protein && touchedFields.carbs && touchedFields.fat;
+  const macroWarning = allTouched
+    ? validateMacroConsistency({
+        calories: Number(manualMacros.calories) || 0,
+        protein: Number(manualMacros.protein) || 0,
+        carbs: Number(manualMacros.carbs) || 0,
+        fat: Number(manualMacros.fat) || 0,
+      })
+    : null;
 
   return (
     <div className="animate-fade-in-blur max-w-3xl mx-auto">
@@ -493,8 +571,36 @@ export function MealTracker() {
               </div>
               <div>
                 <h3 className="text-sm font-semibold leading-none">Log a Meal</h3>
-                <p className="text-[11px] text-muted-foreground mt-0.5">Describe, snap a photo, or both</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  {logMode === 'ai' ? 'Describe, snap a photo, or both' : 'Enter macros from the label'}
+                </p>
               </div>
+            </div>
+
+            {/* Mode Toggle */}
+            <div className="flex gap-1 mb-3 p-1 bg-muted/40 rounded-xl">
+              <button
+                onClick={() => setLogMode('ai')}
+                className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  logMode === 'ai'
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                AI Analyze
+              </button>
+              <button
+                onClick={() => setLogMode('manual')}
+                className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  logMode === 'manual'
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <PenLine className="h-3.5 w-3.5" />
+                Manual Entry
+              </button>
             </div>
 
             {/* Category selector */}
@@ -514,68 +620,160 @@ export function MealTracker() {
               ))}
             </div>
 
-            {/* Meal description */}
-            <textarea
-              id="meal-description"
-              value={mealDescription}
-              onChange={(e) => setMealDescription(e.target.value)}
-              placeholder="e.g. Protein shake with whole milk and mixed berries"
-              className="min-h-[72px] w-full resize-y rounded-xl border border-input bg-background px-3 py-2.5 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              maxLength={500}
-            />
+            {logMode === 'manual' ? (
+              <>
+                {/* Description — single-line input */}
+                <input
+                  type="text"
+                  value={manualDescription}
+                  onChange={(e) => setManualDescription(e.target.value)}
+                  placeholder="e.g. Chicken breast with rice"
+                  className="w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  maxLength={200}
+                />
 
-            {/* Actions row */}
-            <div className="mt-3 flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => fileInputRef.current?.click()}
-                className="text-xs rounded-lg"
-              >
-                <Camera className="h-3.5 w-3.5 mr-1.5" />
-                {selectedFile ? 'Change Photo' : 'Attach Photo'}
-              </Button>
-              {selectedFile ? (
-                <span className="text-xs text-muted-foreground flex items-center gap-1 min-w-0">
-                  <span className="truncate">
-                    {selectedFile.name.length > 25
-                      ? selectedFile.name.slice(0, 25) + '...'
-                      : selectedFile.name}
-                  </span>
-                  <button
-                    onClick={() => setSelectedFile(null)}
-                    className="shrink-0 text-destructive hover:text-destructive/80"
+                {/* Macro inputs */}
+                <div className="grid grid-cols-4 gap-2 mt-3">
+                  {(['calories', 'protein', 'carbs', 'fat'] as const).map((field) => {
+                    const colorMap = { calories: '', protein: 'text-blue-500', carbs: 'text-amber-500', fat: 'text-rose-500' };
+                    const labelMap = { calories: 'Cal', protein: 'Protein', carbs: 'Carbs', fat: 'Fat' };
+                    const isAutoFilled = autoFilledField === field;
+                    return (
+                      <div key={field} className="text-center">
+                        <input
+                          type="number"
+                          inputMode="numeric"
+                          value={manualMacros[field]}
+                          onChange={(e) => handleManualMacroChange(field, e.target.value)}
+                          placeholder="0"
+                          className={`w-full text-center text-lg font-bold bg-background border rounded-md py-1 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
+                            isAutoFilled ? 'border-primary/50 bg-primary/5' : 'border-border'
+                          } ${colorMap[field]}`}
+                        />
+                        <div className="text-[10px] text-muted-foreground uppercase tracking-wider mt-1">
+                          {labelMap[field]}
+                          {isAutoFilled && <span className="text-primary ml-0.5">*</span>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Auto-calc hint */}
+                {autoFilledField && (
+                  <p className="text-[11px] text-primary mt-1">
+                    * {autoFilledField.charAt(0).toUpperCase() + autoFilledField.slice(1)} auto-calculated
+                  </p>
+                )}
+
+                {/* Validation warning */}
+                {macroWarning && (
+                  <div className="mt-2 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
+                    {macroWarning}
+                  </div>
+                )}
+
+                {/* Time picker */}
+                <div className="flex items-center gap-2 mt-3">
+                  <Clock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  <input
+                    type="time"
+                    value={manualTime}
+                    onChange={(e) => {
+                      setManualTime(e.target.value);
+                      const date = inputValueToDate(e.target.value, new Date());
+                      setQuickAddCategory(getCategoryForTime(date));
+                    }}
+                    className="h-8 rounded-md border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  />
+                  <span className="text-xs text-muted-foreground">Meal time</span>
+                </div>
+
+                {/* Save button */}
+                <Button
+                  onClick={handleManualSave}
+                  disabled={isSavingManual || !canSaveManual}
+                  className="mt-3 w-full h-11 text-sm interactive-scale rounded-xl"
+                >
+                  {isSavingManual ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="h-4 w-4 mr-2" />
+                      Save Meal
+                    </>
+                  )}
+                </Button>
+              </>
+            ) : (
+              <>
+                {/* Meal description */}
+                <textarea
+                  id="meal-description"
+                  value={mealDescription}
+                  onChange={(e) => setMealDescription(e.target.value)}
+                  placeholder="e.g. Protein shake with whole milk and mixed berries"
+                  className="min-h-[72px] w-full resize-y rounded-xl border border-input bg-background px-3 py-2.5 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  maxLength={500}
+                />
+
+                {/* Actions row */}
+                <div className="mt-3 flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="text-xs rounded-lg"
                   >
-                    <X className="h-3 w-3" />
-                  </button>
-                </span>
-              ) : (
-                <span className="text-xs text-muted-foreground">Optional</span>
-              )}
-            </div>
+                    <Camera className="h-3.5 w-3.5 mr-1.5" />
+                    {selectedFile ? 'Change Photo' : 'Attach Photo'}
+                  </Button>
+                  {selectedFile ? (
+                    <span className="text-xs text-muted-foreground flex items-center gap-1 min-w-0">
+                      <span className="truncate">
+                        {selectedFile.name.length > 25
+                          ? selectedFile.name.slice(0, 25) + '...'
+                          : selectedFile.name}
+                      </span>
+                      <button
+                        onClick={() => setSelectedFile(null)}
+                        className="shrink-0 text-destructive hover:text-destructive/80"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">Optional</span>
+                  )}
+                </div>
 
-            <Button
-              onClick={handleAnalyze}
-              disabled={isAnalyzing || !canAnalyze}
-              className="mt-3 w-full h-11 text-sm interactive-scale rounded-xl"
-            >
-              {isAnalyzing ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Analyzing...
-                </>
-              ) : selectedFile ? (
-                <>
-                  <Camera className="h-4 w-4 mr-2" />
-                  Analyze Photo
-                </>
-              ) : (
-                <>
-                  <Sparkles className="h-4 w-4 mr-2" />
-                  Analyze Meal
-                </>
-              )}
-            </Button>
+                <Button
+                  onClick={handleAnalyze}
+                  disabled={isAnalyzing || !canAnalyze}
+                  className="mt-3 w-full h-11 text-sm interactive-scale rounded-xl"
+                >
+                  {isAnalyzing ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Analyzing...
+                    </>
+                  ) : selectedFile ? (
+                    <>
+                      <Camera className="h-4 w-4 mr-2" />
+                      Analyze Photo
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="h-4 w-4 mr-2" />
+                      Analyze Meal
+                    </>
+                  )}
+                </Button>
+              </>
+            )}
           </div>
         </CardContent>
       </Card>
