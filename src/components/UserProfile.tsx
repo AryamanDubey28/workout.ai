@@ -1,13 +1,13 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { User, UserFact, FactCategory } from '@/types/user';
+import { User, UserFact, FactCategory, AiSoul, SoulPresetId } from '@/types/user';
 import { MacroGoal, GoalType, ActivityLevel, Sex } from '@/types/meal';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
-import { LogOut, User as UserIcon, Mail, Calendar, Weight, Target, Calculator, Save, Loader2, Check, Dumbbell, Download, Sparkles, Plus, X, ChevronRight } from 'lucide-react';
+import { LogOut, User as UserIcon, Mail, Calendar, Weight, Target, Calculator, Save, Loader2, Check, Dumbbell, Download, Sparkles, Plus, X, ChevronRight, Bot, Shield, Flame, BookOpen, Heart, FlaskConical, Pencil, RotateCcw } from 'lucide-react';
 
 const FACT_CATEGORIES: { value: FactCategory; label: string }[] = [
   { value: 'health', label: 'Health & Injuries' },
@@ -19,6 +19,22 @@ const FACT_CATEGORIES: { value: FactCategory; label: string }[] = [
   { value: 'lifestyle', label: 'Lifestyle' },
   { value: 'personality', label: 'Personality' },
 ];
+
+const SOUL_PRESETS: { id: SoulPresetId; name: string; shortDescription: string }[] = [
+  { id: 'drill_sergeant', name: 'Drill Sergeant', shortDescription: 'Tough love, no excuses' },
+  { id: 'hype_coach', name: 'Hype Coach', shortDescription: 'Maximum energy, maximum hype' },
+  { id: 'wise_mentor', name: 'Wise Mentor', shortDescription: 'Calm, philosophical guidance' },
+  { id: 'friendly_trainer', name: 'Friendly Trainer', shortDescription: 'Warm and approachable' },
+  { id: 'science_nerd', name: 'Science Nerd', shortDescription: 'Data-driven coaching' },
+];
+
+const SOUL_PRESET_ICONS: Record<SoulPresetId, typeof Shield> = {
+  drill_sergeant: Shield,
+  hype_coach: Flame,
+  wise_mentor: BookOpen,
+  friendly_trainer: Heart,
+  science_nerd: FlaskConical,
+};
 
 interface UserProfileProps {
   user: User;
@@ -95,6 +111,23 @@ export function UserProfile({ user, onLogout, onManagePresets }: UserProfileProp
   const [newFactCategory, setNewFactCategory] = useState<FactCategory>('personality');
   const [isAddingFact, setIsAddingFact] = useState(false);
 
+  // Soul state
+  const SOUL_CACHE_KEY = 'workout-ai-soul';
+  const [soul, setSoul] = useState<AiSoul | null>(() => {
+    try {
+      const cached = localStorage.getItem(SOUL_CACHE_KEY);
+      return cached ? JSON.parse(cached) : null;
+    } catch { return null; }
+  });
+  const [isLoadingSoul, setIsLoadingSoul] = useState(() => {
+    try { return !localStorage.getItem(SOUL_CACHE_KEY); } catch { return true; }
+  });
+  const [showSoulDrawer, setShowSoulDrawer] = useState(false);
+  const [showSoulChanger, setShowSoulChanger] = useState(false);
+  const [isBuildingSoul, setIsBuildingSoul] = useState(false);
+  const [customSoulInput, setCustomSoulInput] = useState('');
+  const [showCustomSoulInput, setShowCustomSoulInput] = useState(false);
+
   // Persist facts to localStorage whenever they change
   useEffect(() => {
     if (facts.length > 0) {
@@ -158,6 +191,91 @@ export function UserProfile({ user, onLogout, onManagePresets }: UserProfileProp
   useEffect(() => {
     loadFacts();
   }, [loadFacts]);
+
+  // Fetch soul on mount
+  const loadSoul = useCallback(async () => {
+    try {
+      const res = await fetch('/api/soul');
+      if (res.ok) {
+        const data = await res.json();
+        setSoul(data.soul || null);
+        try {
+          if (data.soul) {
+            localStorage.setItem(SOUL_CACHE_KEY, JSON.stringify(data.soul));
+          } else {
+            localStorage.removeItem(SOUL_CACHE_KEY);
+          }
+        } catch {}
+      }
+    } catch (err) {
+      console.error('Failed to load soul:', err);
+    } finally {
+      setIsLoadingSoul(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadSoul();
+  }, [loadSoul]);
+
+  const handleSelectSoulPreset = async (presetId: SoulPresetId) => {
+    setIsBuildingSoul(true);
+    try {
+      const res = await fetch('/api/soul', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ presetId }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSoul(data.soul);
+        try { localStorage.setItem(SOUL_CACHE_KEY, JSON.stringify(data.soul)); } catch {}
+        setShowSoulChanger(false);
+      }
+    } catch (err) {
+      console.error('Failed to set soul preset:', err);
+    } finally {
+      setIsBuildingSoul(false);
+    }
+  };
+
+  const handleCustomSoul = async () => {
+    if (!customSoulInput.trim()) return;
+    setIsBuildingSoul(true);
+    try {
+      const res = await fetch('/api/soul', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customInput: customSoulInput.trim() }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSoul(data.soul);
+        try { localStorage.setItem(SOUL_CACHE_KEY, JSON.stringify(data.soul)); } catch {}
+        setCustomSoulInput('');
+        setShowCustomSoulInput(false);
+        setShowSoulChanger(false);
+      }
+    } catch (err) {
+      console.error('Failed to set custom soul:', err);
+    } finally {
+      setIsBuildingSoul(false);
+    }
+  };
+
+  const handleResetSoul = async () => {
+    try {
+      const res = await fetch('/api/soul', { method: 'DELETE' });
+      if (res.ok) {
+        setSoul(null);
+        try { localStorage.removeItem(SOUL_CACHE_KEY); } catch {}
+        setShowSoulDrawer(false);
+        setShowSoulChanger(false);
+      }
+    } catch (err) {
+      console.error('Failed to reset soul:', err);
+    }
+  };
 
   const handleAddFact = async () => {
     if (!newFactContent.trim()) return;
@@ -497,6 +615,202 @@ export function UserProfile({ user, onLogout, onManagePresets }: UserProfileProp
         </DrawerContent>
       </Drawer>
 
+      {/* AI Personality Card */}
+      <Card
+        className="w-full max-w-md animate-scale-in animation-delay-100 border-border/50 shadow-lg cursor-pointer hover:bg-muted/30 transition-colors"
+        onClick={() => soul ? setShowSoulDrawer(true) : null}
+      >
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Bot className="h-5 w-5 text-primary" />
+                AI Personality
+              </CardTitle>
+              <CardDescription>
+                {isLoadingSoul
+                  ? 'Loading...'
+                  : soul
+                    ? `${soul.name}${soul.presetId ? '' : ' (Custom)'}`
+                    : 'No personality set — choose one in chat'}
+              </CardDescription>
+            </div>
+            {soul && <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0" />}
+          </div>
+        </CardHeader>
+        {!isLoadingSoul && soul && (
+          <CardContent className="pt-0">
+            <p className="text-xs text-muted-foreground line-clamp-2">
+              {soul.soulContent.slice(0, 150)}...
+            </p>
+          </CardContent>
+        )}
+      </Card>
+
+      {/* AI Personality Drawer */}
+      <Drawer open={showSoulDrawer} onOpenChange={setShowSoulDrawer}>
+        <DrawerContent style={{ height: '85dvh' }}>
+          <div className="flex flex-col h-full overflow-hidden">
+            <DrawerHeader className="shrink-0">
+              <DrawerTitle className="flex items-center gap-2">
+                <Bot className="h-5 w-5 text-primary" />
+                AI Personality
+              </DrawerTitle>
+              <p className="text-sm text-muted-foreground">Your AI coach&apos;s personality and coaching style</p>
+            </DrawerHeader>
+
+            <div className="flex-1 overflow-y-auto px-4 pb-4">
+              {isBuildingSoul ? (
+                <div className="flex flex-col items-center justify-center py-12">
+                  <Sparkles className="h-8 w-8 text-primary animate-pulse mb-3" />
+                  <p className="text-sm font-medium">Building new personality...</p>
+                  <p className="text-xs text-muted-foreground mt-1">This takes a few seconds</p>
+                </div>
+              ) : showSoulChanger ? (
+                /* Personality changer — same preset grid */
+                <div className="space-y-3">
+                  <p className="text-sm font-medium">Choose a new personality</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {SOUL_PRESETS.map((preset) => {
+                      const Icon = SOUL_PRESET_ICONS[preset.id];
+                      return (
+                        <button
+                          key={preset.id}
+                          onClick={() => handleSelectSoulPreset(preset.id)}
+                          className={`flex flex-col items-start gap-1.5 p-3 rounded-xl border transition-all text-left group ${
+                            soul?.presetId === preset.id
+                              ? 'border-primary bg-primary/5'
+                              : 'border-border bg-background hover:bg-secondary/80 hover:border-primary/30'
+                          }`}
+                        >
+                          <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                            <Icon className="h-4 w-4 text-primary" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium leading-tight">{preset.name}</p>
+                            <p className="text-[11px] text-muted-foreground">{preset.shortDescription}</p>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {showCustomSoulInput ? (
+                    <div className="space-y-2">
+                      <textarea
+                        value={customSoulInput}
+                        onChange={(e) => setCustomSoulInput(e.target.value)}
+                        placeholder="Describe your ideal AI coach..."
+                        rows={3}
+                        className="w-full resize-none rounded-xl border border-input bg-background px-3 py-2.5 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      />
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => { setShowCustomSoulInput(false); setCustomSoulInput(''); }}
+                          className="flex-1 h-9 text-xs"
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={handleCustomSoul}
+                          disabled={!customSoulInput.trim()}
+                          className="flex-1 h-9 text-xs"
+                        >
+                          <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+                          Create
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setShowCustomSoulInput(true)}
+                      className="w-full flex items-center gap-2 p-3 rounded-xl border border-dashed border-border hover:bg-secondary/80 transition-colors text-left"
+                    >
+                      <Pencil className="h-4 w-4 text-primary" />
+                      <span className="text-sm">Or describe your own...</span>
+                    </button>
+                  )}
+
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => { setShowSoulChanger(false); setShowCustomSoulInput(false); setCustomSoulInput(''); }}
+                    className="w-full text-xs text-muted-foreground"
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              ) : soul ? (
+                /* Current soul view */
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    {soul.presetId && SOUL_PRESET_ICONS[soul.presetId as SoulPresetId] ? (
+                      (() => {
+                        const Icon = SOUL_PRESET_ICONS[soul.presetId as SoulPresetId];
+                        return (
+                          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                            <Icon className="h-5 w-5 text-primary" />
+                          </div>
+                        );
+                      })()
+                    ) : (
+                      <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                        <Bot className="h-5 w-5 text-primary" />
+                      </div>
+                    )}
+                    <div>
+                      <p className="font-semibold">{soul.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {soul.presetId ? 'Preset' : 'Custom'} personality
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl bg-muted/50 p-4">
+                    <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">Personality</p>
+                    <p className="text-sm leading-relaxed whitespace-pre-wrap">{soul.soulContent}</p>
+                  </div>
+
+                  {soul.userInput && (
+                    <div className="rounded-xl bg-muted/30 p-3">
+                      <p className="text-xs font-medium text-muted-foreground mb-1">Your original description</p>
+                      <p className="text-sm text-muted-foreground">{soul.userInput}</p>
+                    </div>
+                  )}
+
+                  <div className="flex gap-2 pt-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowSoulChanger(true)}
+                      className="flex-1 h-10 text-xs"
+                    >
+                      <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+                      Change Personality
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleResetSoul}
+                      className="h-10 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <p className="text-sm text-muted-foreground">No personality set. Open a new chat to choose one.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </DrawerContent>
+      </Drawer>
+
       {/* Export Data Card */}
       <Card className="w-full max-w-md animate-scale-in animation-delay-100 border-border/50 shadow-lg">
         <CardHeader>
@@ -777,7 +1091,7 @@ export function UserProfile({ user, onLogout, onManagePresets }: UserProfileProp
       {/* Version info */}
       <div className="flex justify-center mt-4 animate-fade-in animation-delay-700">
         <span className="text-xs text-muted-foreground/60 font-mono">
-          v3.1.2
+          v3.2.0
         </span>
       </div>
     </div>

@@ -1,5 +1,5 @@
 import { sql } from '@vercel/postgres';
-import { User, CreateUserData, UserFact, FactCategory, FactSource } from '@/types/user';
+import { User, CreateUserData, UserFact, FactCategory, FactSource, AiSoul } from '@/types/user';
 import { Workout, WorkoutPreset, SplitReminder, Exercise, WorkoutType, RunData } from '@/types/workout';
 import { Meal, MealCategory, Macros, MacroGoal, SavedMeal, FoodSuggestion, SuggestionStatus } from '@/types/meal';
 import bcrypt from 'bcryptjs';
@@ -346,6 +346,20 @@ export async function initDatabase() {
 
     await sql`
       CREATE INDEX IF NOT EXISTS user_facts_user_id_idx ON user_facts(user_id);
+    `;
+
+    // Create ai_souls table
+    await sql`
+      CREATE TABLE IF NOT EXISTS ai_souls (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        preset_id VARCHAR(50),
+        name VARCHAR(255) NOT NULL,
+        soul_content TEXT NOT NULL,
+        user_input TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
     `;
 
     console.log('Database initialized successfully');
@@ -1626,5 +1640,68 @@ export async function getRecentConversationIds(userId: string, limit: number = 3
   } catch (error) {
     console.error('Error getting recent conversation IDs:', error);
     return [];
+  }
+}
+
+// ========================
+// AI Souls
+// ========================
+
+function mapSoulRow(row: any): AiSoul {
+  return {
+    id: row.id,
+    presetId: row.preset_id || null,
+    name: row.name,
+    soulContent: row.soul_content,
+    userInput: row.user_input || null,
+    createdAt: new Date(row.created_at),
+    updatedAt: new Date(row.updated_at),
+  };
+}
+
+export async function getAiSoul(userId: string): Promise<AiSoul | null> {
+  try {
+    const result = await sql`
+      SELECT * FROM ai_souls WHERE user_id = ${userId} LIMIT 1;
+    `;
+    if (result.rows.length === 0) return null;
+    return mapSoulRow(result.rows[0]);
+  } catch (error) {
+    console.error('Error getting AI soul:', error);
+    return null;
+  }
+}
+
+export async function upsertAiSoul(
+  userId: string,
+  data: { presetId: string | null; name: string; soulContent: string; userInput: string | null }
+): Promise<AiSoul | null> {
+  try {
+    const result = await sql`
+      INSERT INTO ai_souls (user_id, preset_id, name, soul_content, user_input)
+      VALUES (${userId}, ${data.presetId}, ${data.name}, ${data.soulContent}, ${data.userInput})
+      ON CONFLICT (user_id)
+      DO UPDATE SET
+        preset_id = ${data.presetId},
+        name = ${data.name},
+        soul_content = ${data.soulContent},
+        user_input = ${data.userInput},
+        updated_at = NOW()
+      RETURNING *;
+    `;
+    return mapSoulRow(result.rows[0]);
+  } catch (error) {
+    console.error('Error upserting AI soul:', error);
+    return null;
+  }
+}
+
+export async function deleteAiSoul(userId: string): Promise<boolean> {
+  try {
+    await sql`DELETE FROM ai_souls WHERE user_id = ${userId};`;
+    return true;
+  } catch (error) {
+    console.error('Error deleting AI soul:', error);
+    return false;
   }
 }
