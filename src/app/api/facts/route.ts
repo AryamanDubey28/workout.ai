@@ -4,7 +4,7 @@ import { initDatabase, getUserFacts, createUserFact } from '@/lib/db';
 import { runPersonalityAgentBatch } from '@/lib/agents/personalityAgent';
 import { FactCategory } from '@/types/user';
 
-const VALID_CATEGORIES: FactCategory[] = ['health', 'diet', 'goals', 'preferences', 'lifestyle', 'personality'];
+const VALID_CATEGORIES: FactCategory[] = ['health', 'diet', 'goals', 'preferences', 'lifestyle', 'personality', 'training', 'adherence'];
 
 // GET /api/facts - Get all facts for the authenticated user
 export async function GET() {

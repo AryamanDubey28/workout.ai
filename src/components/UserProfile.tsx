@@ -14,6 +14,8 @@ const FACT_CATEGORIES: { value: FactCategory; label: string }[] = [
   { value: 'diet', label: 'Diet & Nutrition' },
   { value: 'goals', label: 'Goals & Motivation' },
   { value: 'preferences', label: 'Training Preferences' },
+  { value: 'training', label: 'Training Patterns' },
+  { value: 'adherence', label: 'Habits & Adherence' },
   { value: 'lifestyle', label: 'Lifestyle' },
   { value: 'personality', label: 'Personality' },
 ];
@@ -77,13 +79,28 @@ export function UserProfile({ user, onLogout, onManagePresets }: UserProfileProp
   const [showGoalForm, setShowGoalForm] = useState(false);
   const [exportingRange, setExportingRange] = useState<string | null>(null);
 
-  // Facts state
-  const [facts, setFacts] = useState<UserFact[]>([]);
-  const [isLoadingFacts, setIsLoadingFacts] = useState(true);
+  // Facts state — localStorage cache for instant loads
+  const FACTS_CACHE_KEY = 'workout-ai-facts';
+  const [facts, setFacts] = useState<UserFact[]>(() => {
+    try {
+      const cached = localStorage.getItem(FACTS_CACHE_KEY);
+      return cached ? JSON.parse(cached) : [];
+    } catch { return []; }
+  });
+  const [isLoadingFacts, setIsLoadingFacts] = useState(() => {
+    try { return !localStorage.getItem(FACTS_CACHE_KEY); } catch { return true; }
+  });
   const [showFacts, setShowFacts] = useState(false);
   const [newFactContent, setNewFactContent] = useState('');
   const [newFactCategory, setNewFactCategory] = useState<FactCategory>('personality');
   const [isAddingFact, setIsAddingFact] = useState(false);
+
+  // Persist facts to localStorage whenever they change
+  useEffect(() => {
+    if (facts.length > 0) {
+      try { localStorage.setItem(FACTS_CACHE_KEY, JSON.stringify(facts)); } catch {}
+    }
+  }, [facts]);
 
   // Form state
   const [goalType, setGoalType] = useState<GoalType>('maintenance');
@@ -167,7 +184,13 @@ export function UserProfile({ user, onLogout, onManagePresets }: UserProfileProp
     try {
       const res = await fetch(`/api/facts/${factId}`, { method: 'DELETE' });
       if (res.ok) {
-        setFacts((prev) => prev.filter((f) => f.id !== factId));
+        setFacts((prev) => {
+          const updated = prev.filter((f) => f.id !== factId);
+          if (updated.length === 0) {
+            try { localStorage.removeItem(FACTS_CACHE_KEY); } catch {}
+          }
+          return updated;
+        });
       }
     } catch (err) {
       console.error('Failed to delete fact:', err);
@@ -754,7 +777,7 @@ export function UserProfile({ user, onLogout, onManagePresets }: UserProfileProp
       {/* Version info */}
       <div className="flex justify-center mt-4 animate-fade-in animation-delay-700">
         <span className="text-xs text-muted-foreground/60 font-mono">
-          v3.1.1
+          v3.1.2
         </span>
       </div>
     </div>

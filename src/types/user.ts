@@ -26,7 +26,7 @@ export interface RegisterData extends CreateUserData {
   secretPassword: string;
 }
 
-export type FactCategory = 'health' | 'diet' | 'goals' | 'preferences' | 'lifestyle' | 'personality';
+export type FactCategory = 'health' | 'diet' | 'goals' | 'preferences' | 'lifestyle' | 'personality' | 'training' | 'adherence';
 export type FactSource = 'ai_extracted' | 'user_added';
 
 export interface UserFact {

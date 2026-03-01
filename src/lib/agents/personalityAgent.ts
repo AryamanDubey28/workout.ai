@@ -7,8 +7,13 @@ import {
   getUserFacts,
   createUserFactsBatch,
   getRecentConversationIds,
+  getUserWorkouts,
+  getUserMealsForDateRange,
+  getMacroGoal,
 } from "@/lib/db";
 import { UserFact, FactCategory } from "@/types/user";
+import { Workout } from "@/types/workout";
+import { Meal, MacroGoal } from "@/types/meal";
 
 // --- Zod schema for structured LLM output ---
 const ExtractedFactsSchema = z.object({
@@ -16,7 +21,7 @@ const ExtractedFactsSchema = z.object({
     .array(
       z.object({
         category: z
-          .enum(["health", "diet", "goals", "preferences", "lifestyle", "personality"])
+          .enum(["health", "diet", "goals", "preferences", "lifestyle", "personality", "training", "adherence"])
           .describe("The category this fact belongs to"),
         content: z
           .string()
@@ -38,6 +43,10 @@ const AgentState = Annotation.Root({
     reducer: (_a, b) => b ?? [],
     default: () => [],
   }),
+  behavioralContext: Annotation<string>({
+    reducer: (_a, b) => b ?? "",
+    default: () => "",
+  }),
   extractedFacts: Annotation<z.infer<typeof ExtractedFactsSchema>["facts"]>({
     reducer: (_a, b) => b ?? [],
     default: () => [],
@@ -48,6 +57,163 @@ const AgentState = Annotation.Root({
   }),
 });
 
+// --- Helpers for behavioral data summarization ---
+
+function summarizeWorkoutPatterns(workouts: Workout[]): string {
+  if (workouts.length === 0) return "No workout history.";
+
+  const now = new Date();
+  const thirtyDaysAgo = new Date(now);
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const sixtyDaysAgo = new Date(now);
+  sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+
+  const last30 = workouts.filter((w) => new Date(w.date) >= thirtyDaysAgo);
+  const prev30 = workouts.filter(
+    (w) => new Date(w.date) >= sixtyDaysAgo && new Date(w.date) < thirtyDaysAgo
+  );
+
+  // Workout frequency
+  const daysWithWorkouts30 = new Set(last30.map((w) => w.date)).size;
+  const daysWithWorkoutsPrev = new Set(prev30.map((w) => w.date)).size;
+
+  // Weekly frequency
+  const weeksInRange = Math.max(1, Math.ceil((now.getTime() - thirtyDaysAgo.getTime()) / (7 * 86400000)));
+  const weeklyAvg = (daysWithWorkouts30 / weeksInRange).toFixed(1);
+
+  // Day of week distribution
+  const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const dayCounts: Record<string, number> = {};
+  for (const w of last30) {
+    const day = dayNames[new Date(w.date).getDay()];
+    dayCounts[day] = (dayCounts[day] || 0) + 1;
+  }
+  const sortedDays = Object.entries(dayCounts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([day, count]) => `${day}: ${count}`)
+    .join(", ");
+
+  // Workout types
+  const typeCounts: Record<string, number> = {};
+  for (const w of last30) {
+    const name = w.name || "Unnamed";
+    typeCounts[name] = (typeCounts[name] || 0) + 1;
+  }
+  const topWorkouts = Object.entries(typeCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([name, count]) => `${name}: ${count}x`)
+    .join(", ");
+
+  // Gaps — consecutive days without workout
+  const sortedDates = [...new Set(last30.map((w) => w.date))].sort();
+  let maxGap = 0;
+  for (let i = 1; i < sortedDates.length; i++) {
+    const gap = Math.floor(
+      (new Date(sortedDates[i]).getTime() - new Date(sortedDates[i - 1]).getTime()) / 86400000
+    );
+    if (gap > maxGap) maxGap = gap;
+  }
+
+  // Strength vs run split
+  const strengthCount = last30.filter((w) => w.type === "strength" || !w.type).length;
+  const runCount = last30.filter((w) => w.type === "run").length;
+
+  const lines = [
+    `Total workouts (past 30d): ${last30.length} (previous 30d: ${prev30.length})`,
+    `Unique workout days (past 30d): ${daysWithWorkouts30} (previous 30d: ${daysWithWorkoutsPrev})`,
+    `Weekly average: ${weeklyAvg} sessions/week`,
+    `Day distribution (past 30d): ${sortedDays || "none"}`,
+    `Top workouts: ${topWorkouts || "none"}`,
+    `Longest gap between sessions: ${maxGap} days`,
+  ];
+
+  if (runCount > 0) {
+    lines.push(`Split: ${strengthCount} strength, ${runCount} runs`);
+  }
+
+  return lines.join("\n");
+}
+
+function summarizeMealAdherence(
+  mealsByDay: { date: string; meals: Meal[] }[],
+  macroGoal: MacroGoal | null
+): string {
+  if (mealsByDay.length === 0) return "No meal history.";
+  if (!macroGoal) return "No macro goals set — cannot assess adherence.";
+
+  const dayTotals = mealsByDay.map((day) => {
+    const totals = { calories: 0, protein: 0, carbs: 0, fat: 0 };
+    for (const m of day.meals) {
+      totals.calories += m.macros?.calories || 0;
+      totals.protein += m.macros?.protein || 0;
+      totals.carbs += m.macros?.carbs || 0;
+      totals.fat += m.macros?.fat || 0;
+    }
+    return { date: day.date, ...totals, mealCount: day.meals.length };
+  });
+
+  const daysTracked = dayTotals.length;
+  const avgCals = Math.round(dayTotals.reduce((s, d) => s + d.calories, 0) / daysTracked);
+  const avgProtein = Math.round(dayTotals.reduce((s, d) => s + d.protein, 0) / daysTracked);
+
+  // Adherence: within 15% of goal
+  const calThreshold = macroGoal.calories * 0.15;
+  const proteinThreshold = macroGoal.protein * 0.15;
+  const daysOnCalTarget = dayTotals.filter(
+    (d) => Math.abs(d.calories - macroGoal.calories) <= calThreshold
+  ).length;
+  const daysOnProteinTarget = dayTotals.filter(
+    (d) => Math.abs(d.protein - macroGoal.protein) <= proteinThreshold
+  ).length;
+
+  // Weekend vs weekday adherence
+  const weekendDays = dayTotals.filter((d) => {
+    const dow = new Date(d.date).getDay();
+    return dow === 0 || dow === 6;
+  });
+  const weekdayDays = dayTotals.filter((d) => {
+    const dow = new Date(d.date).getDay();
+    return dow !== 0 && dow !== 6;
+  });
+
+  const avgCalsWeekend = weekendDays.length
+    ? Math.round(weekendDays.reduce((s, d) => s + d.calories, 0) / weekendDays.length)
+    : 0;
+  const avgCalsWeekday = weekdayDays.length
+    ? Math.round(weekdayDays.reduce((s, d) => s + d.calories, 0) / weekdayDays.length)
+    : 0;
+
+  // Days with no meals logged
+  const daysNoMeals = dayTotals.filter((d) => d.mealCount === 0).length;
+
+  // Consistency: how many of the last 14 calendar days had meals logged
+  const now = new Date();
+  const last14 = new Set<string>();
+  for (let i = 0; i < 14; i++) {
+    const d = new Date(now);
+    d.setDate(d.getDate() - i);
+    last14.add(d.toISOString().split("T")[0]);
+  }
+  const daysLogged = dayTotals.filter((d) => last14.has(d.date)).length;
+
+  const lines = [
+    `Macro goal: ${macroGoal.calories} cal, ${macroGoal.protein}g protein, ${macroGoal.carbs}g carbs, ${macroGoal.fat}g fat (${macroGoal.goalType})`,
+    `Days tracked (past 2wk): ${daysTracked}`,
+    `Days logged meals (past 14 calendar days): ${daysLogged}/14`,
+    `Average daily intake: ${avgCals} cal, ${avgProtein}g protein`,
+    `Days within calorie target (±15%): ${daysOnCalTarget}/${daysTracked}`,
+    `Days within protein target (±15%): ${daysOnProteinTarget}/${daysTracked}`,
+    `Weekday avg calories: ${avgCalsWeekday}, Weekend avg calories: ${avgCalsWeekend}`,
+  ];
+
+  if (daysNoMeals > 0) {
+    lines.push(`Days with no meals logged: ${daysNoMeals}`);
+  }
+
+  return lines.join("\n");
+}
+
 // --- Node: Fetch context from DB ---
 async function fetchContext(
   state: typeof AgentState.State
@@ -55,9 +221,18 @@ async function fetchContext(
   try {
     await initDatabase();
 
-    const [messages, existingFacts] = await Promise.all([
+    const now = new Date();
+    const twoWeeksAgo = new Date(now);
+    twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
+    const twoWeeksAgoKey = twoWeeksAgo.toISOString().split("T")[0];
+    const todayKey = now.toISOString().split("T")[0];
+
+    const [messages, existingFacts, workouts, mealHistory, macroGoal] = await Promise.all([
       getChatMessages(state.conversationId, 50),
       getUserFacts(state.userId),
+      getUserWorkouts(state.userId),
+      getUserMealsForDateRange(state.userId, twoWeeksAgoKey, todayKey),
+      getMacroGoal(state.userId),
     ]);
 
     // Only proceed if there are enough user messages to analyze
@@ -77,10 +252,16 @@ async function fetchContext(
         ? existingFacts.map((f) => `[${f.category}] ${f.content}`).join("\n")
         : "(none)";
 
+    // Build behavioral context
+    const workoutSummary = summarizeWorkoutPatterns(workouts);
+    const mealSummary = summarizeMealAdherence(mealHistory, macroGoal);
+    const behavioralContext = `WORKOUT PATTERNS:\n${workoutSummary}\n\nMEAL & MACRO ADHERENCE:\n${mealSummary}`;
+
     return {
       chatMessages,
       existingFacts: existingFactsText,
       existingFactsList: existingFacts,
+      behavioralContext,
     };
   } catch (err) {
     console.error("Personality agent - fetchContext error:", err);
@@ -104,7 +285,7 @@ async function extractFacts(
     const structuredLlm = llm.withStructuredOutput(ExtractedFactsSchema);
 
     const result = await structuredLlm.invoke(
-      `You are analyzing a conversation between a fitness AI assistant and a user. Your job is to extract personal facts about the user that would help personalize future interactions.
+      `You are analyzing a fitness app user's conversation AND their actual workout/meal data. Your job is to extract personal facts AND behavioral insights that would help personalize future interactions.
 
 CONVERSATION:
 ${state.chatMessages}
@@ -112,26 +293,40 @@ ${state.chatMessages}
 EXISTING KNOWN FACTS (do NOT re-extract these — they are already saved):
 ${state.existingFacts}
 
+BEHAVIORAL DATA:
+${state.behavioralContext}
+
 INSTRUCTIONS:
-1. Extract facts about the user from their messages. Look for:
+1. Extract facts from BOTH the conversation and the behavioral data. Look for:
    - Health conditions, injuries, physical limitations (category: health)
    - Dietary preferences, restrictions, allergies (category: diet)
    - Fitness goals, weight goals, training objectives (category: goals)
    - Workout preferences, schedule preferences, equipment access (category: preferences)
+   - Training frequency, consistency, workout type patterns, rest day patterns (category: training)
+     Examples: "Trains 5x per week consistently", "Mostly trains on weekdays", "Prefers push/pull/legs split", "Takes weekends off", "Training frequency dropped recently"
+   - Macro adherence, diet consistency, tracking habits, weekend vs weekday patterns (category: adherence)
+     Examples: "Consistently hits protein targets", "Struggles with diet on weekends", "Tracks meals daily", "Tends to under-eat on rest days", "Calorie intake often exceeds goal by 200+"
    - Lifestyle factors: job type, sleep habits, stress, family situation (category: lifestyle)
    - Personality traits, mindset, emotional relationship with fitness (category: personality)
 
-2. Each fact should be:
-   - Written in third person (e.g., "Is vegetarian" not "I am vegetarian")
+2. For behavioral facts (training, adherence), analyze the DATA objectively:
+   - Compare actual workout frequency to what the user says or to reasonable expectations
+   - Check calorie/macro adherence rates and identify patterns (weekday vs weekend, consistency)
+   - Note gaps, trends, or notable patterns
+   - Be specific with numbers where possible (e.g., "Averages 4.2 sessions/week" not just "Works out often")
+
+3. Each fact should be:
+   - Written in third person (e.g., "Trains 5x per week" not "I train 5x per week")
    - Concise (one short sentence)
-   - A stable personal fact, NOT a transient observation (skip things like "had a good workout today")
+   - A stable pattern, NOT a one-off observation
    - Genuinely NEW — not a rephrasing of an existing fact
 
-3. Only extract facts the user explicitly stated or strongly implied. Do NOT infer or speculate.
+4. Only extract conversation-based facts the user explicitly stated or strongly implied.
+   Behavioral facts should be based on clear patterns in the data (not single data points).
 
-4. If no new facts can be extracted, return an empty facts array.
+5. If no new facts can be extracted, return an empty facts array.
 
-5. Return at most 5 new facts per analysis.`
+6. Return at most 7 new facts per analysis.`
     );
 
     return { extractedFacts: result.facts };
