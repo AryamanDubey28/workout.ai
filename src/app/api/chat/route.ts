@@ -422,11 +422,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    const body = await request.json();
-    const { message, conversationId } = body;
+    // Parse request — FormData (with image) or JSON (text only)
+    let message = '';
+    let conversationId = '';
+    let image: File | null = null;
 
-    if (!message || typeof message !== 'string') {
-      return NextResponse.json({ error: 'Message string required' }, { status: 400 });
+    const contentType = request.headers.get('content-type') || '';
+    if (contentType.includes('multipart/form-data')) {
+      const formData = await request.formData();
+      message = ((formData.get('message') as string) || '').trim();
+      conversationId = (formData.get('conversationId') as string) || '';
+      image = formData.get('image') as File | null;
+    } else {
+      const body = await request.json();
+      message = (body.message || '').trim();
+      conversationId = body.conversationId || '';
+    }
+
+    if (!message && !image) {
+      return NextResponse.json({ error: 'Message or image required' }, { status: 400 });
     }
 
     if (!conversationId || typeof conversationId !== 'string') {
@@ -438,10 +452,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'OpenAI API key not configured' }, { status: 500 });
     }
 
+    // Convert image to base64 for OpenAI vision
+    let imageContent: { type: 'image_url'; image_url: { url: string } } | null = null;
+    if (image) {
+      const bytes = await image.arrayBuffer();
+      const base64 = Buffer.from(bytes).toString('base64');
+      const mimeType = image.type || 'image/jpeg';
+      imageContent = {
+        type: 'image_url',
+        image_url: { url: `data:${mimeType};base64,${base64}` },
+      };
+    }
+
     await initDatabase();
 
-    // Save user message to DB
-    await saveChatMessage(session.userId, conversationId, 'user', message);
+    // Save user message text to DB (images are ephemeral, not persisted)
+    const savedText = message || '[Sent an image]';
+    await saveChatMessage(session.userId, conversationId, 'user', savedText);
 
     // Load conversation history from DB and fetch context in parallel
     const now = new Date();
@@ -471,7 +498,7 @@ export async function POST(request: NextRequest) {
     // Auto-generate title from first user message (or defer for generic messages)
     const userMessages = dbMessages.filter(m => m.role === 'user');
     const isFirstMessage = userMessages.length === 1;
-    const deferTitle = isFirstMessage && isGenericMessage(message);
+    const deferTitle = isFirstMessage && (!message || isGenericMessage(message));
     if (isFirstMessage && !deferTitle) {
       const title = generateTitle(message);
       await updateConversationTitle(session.userId, conversationId, title);
@@ -486,15 +513,28 @@ export async function POST(request: NextRequest) {
     const mealHistoryContext = formatMealHistoryForContext(mealHistory, todayKey);
     const goalContext = formatGoalForContext(macroGoal);
 
-    const chatHistory = dbMessages.map((m) => ({
+    // Build chat history — inject image into the last user message if present
+    const chatHistory: Array<{ role: 'user' | 'assistant'; content: any }> = dbMessages.map((m) => ({
       role: m.role as 'user' | 'assistant',
       content: m.content,
     }));
+
+    if (imageContent && chatHistory.length > 0) {
+      const lastMsg = chatHistory[chatHistory.length - 1];
+      if (lastMsg.role === 'user') {
+        const textContent = message || 'What do you see in this image?';
+        lastMsg.content = [
+          imageContent,
+          { type: 'text', text: textContent },
+        ];
+      }
+    }
 
     logMeta = {
       userId: session.userId,
       conversationId,
       messageCount: chatHistory.length,
+      hasImage: !!imageContent,
     };
 
     const systemMessage = `You are a knowledgeable fitness and workout assistant for ${session.name}. You have access to their profile metrics (age, weight, height, sex, activity level), their complete workout history (including workout notes), today's meals, the past 2 weeks of meal history, and their nutrition goals. You can provide advice on training, form, programming, recovery, and nutrition.
