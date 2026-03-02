@@ -26,6 +26,7 @@ export interface Meal {
   category: MealCategory;
   imageUrl?: string;
   createdAt: Date;
+  sortOrder: number;
 }
 
 export interface DailyMacros {
