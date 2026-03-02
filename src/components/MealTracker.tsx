@@ -10,6 +10,33 @@ import { Meal, Macros, MealItem, MacroGoal, MealCategory, MEAL_CATEGORIES, Saved
 import { FoodBankPicker } from '@/components/FoodBankPicker';
 import { getCategoryForTime, timeToInputValue, inputValueToDate } from '@/lib/mealUtils';
 import { autoCalculateMacro, validateMacroConsistency, TouchedFields } from '@/lib/macroCalc';
+import {
+  DndContext,
+  DragOverEvent,
+  DragEndEvent,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  useDroppable,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+
+function DroppableCategory({ id, children }: { id: string; children: React.ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id });
+  return (
+    <div ref={setNodeRef} className={`transition-colors duration-200 rounded-lg ${isOver ? 'bg-primary/5 ring-1 ring-primary/20' : ''}`}>
+      {children}
+    </div>
+  );
+}
 
 function formatDateKey(date: Date): string {
   return date.toISOString().split('T')[0];
@@ -87,6 +114,64 @@ export function MealTracker() {
   // Food suggestions state
   const [suggestions, setSuggestions] = useState<FoodSuggestion[]>([]);
 
+  // Drag-and-drop state
+  const [isDragDirty, setIsDragDirty] = useState(false);
+  const mealsRef = useRef(meals);
+  mealsRef.current = meals;
+
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const findMealContainer = useCallback((id: string | number): MealCategory | undefined => {
+    const strId = String(id);
+    if (MEAL_CATEGORIES.some(cat => cat.key === strId)) return strId as MealCategory;
+    return mealsRef.current.find(m => m.id === strId)?.category;
+  }, []);
+
+  const handleMealDragOver = useCallback((event: DragOverEvent) => {
+    const { active, over } = event;
+    if (!over) return;
+
+    const activeContainer = findMealContainer(active.id);
+    const overContainer = findMealContainer(over.id);
+
+    if (!activeContainer || !overContainer || activeContainer === overContainer) return;
+
+    setMeals(prev => prev.map(m =>
+      m.id === String(active.id) ? { ...m, category: overContainer } : m
+    ));
+  }, [findMealContainer]);
+
+  const handleMealDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over) return;
+
+    const activeId = String(active.id);
+    const overId = String(over.id);
+
+    setMeals(prev => {
+      const activeMeal = prev.find(m => m.id === activeId);
+      if (!activeMeal) return prev;
+
+      const category = activeMeal.category;
+      const categoryMeals = prev.filter(m => m.category === category);
+      const oldIndex = categoryMeals.findIndex(m => m.id === activeId);
+      const newIndex = categoryMeals.findIndex(m => m.id === overId);
+
+      if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
+        const reordered = arrayMove(categoryMeals, oldIndex, newIndex);
+        const otherMeals = prev.filter(m => m.category !== category);
+        return [...otherMeals, ...reordered];
+      }
+      return prev;
+    });
+
+    setIsDragDirty(true);
+  }, []);
+
   const loadGoal = useCallback(async () => {
     // Show cached goal instantly
     try {
@@ -138,6 +223,29 @@ export function MealTracker() {
   useEffect(() => {
     loadMeals();
   }, [loadMeals]);
+
+  // Persist meal reorder after drag
+  useEffect(() => {
+    if (!isDragDirty) return;
+    setIsDragDirty(false);
+
+    const updates = MEAL_CATEGORIES.flatMap(cat =>
+      meals
+        .filter(m => m.category === cat.key)
+        .map((m, i) => ({ id: m.id, category: m.category, sortOrder: i }))
+    );
+
+    if (updates.length === 0) return;
+
+    fetch('/api/meals/reorder', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ updates }),
+    }).catch(err => {
+      console.error('Error saving meal order:', err);
+      loadMeals();
+    });
+  }, [isDragDirty, meals, loadMeals]);
 
   const loadSavedMeals = useCallback(async () => {
     // Show cached data instantly
@@ -825,51 +933,62 @@ export function MealTracker() {
           </div>
         </div>
       ) : (
-        <div className="space-y-4 stagger-children">
-          {MEAL_CATEGORIES.map((cat) => {
-            const categoryMeals = mealsByCategory[cat.key] || [];
-            return (
-              <div key={cat.key}>
-                {/* Category Header */}
-                <div className="flex items-center justify-between mb-2 px-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold">{cat.label}</span>
-                    {categoryMeals.length > 0 && (
-                      <span className="text-xs text-muted-foreground">
-                        {categoryMeals.reduce((sum, m) => sum + m.macros.calories, 0)} cal
-                      </span>
-                    )}
+        <DndContext
+          sensors={dndSensors}
+          collisionDetection={closestCenter}
+          onDragOver={handleMealDragOver}
+          onDragEnd={handleMealDragEnd}
+        >
+          <div className="space-y-4 stagger-children">
+            {MEAL_CATEGORIES.map((cat) => {
+              const categoryMeals = mealsByCategory[cat.key] || [];
+              return (
+                <div key={cat.key}>
+                  {/* Category Header */}
+                  <div className="flex items-center justify-between mb-2 px-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold">{cat.label}</span>
+                      {categoryMeals.length > 0 && (
+                        <span className="text-xs text-muted-foreground">
+                          {categoryMeals.reduce((sum, m) => sum + m.macros.calories, 0)} cal
+                        </span>
+                      )}
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setQuickAddCategory(cat.key);
+                        uploadCardRef.current?.scrollIntoView({ behavior: 'smooth' });
+                      }}
+                      disabled={isAnalyzing}
+                      className="h-8 w-8 p-0 hover:bg-primary/10 text-muted-foreground hover:text-primary"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setQuickAddCategory(cat.key);
-                      uploadCardRef.current?.scrollIntoView({ behavior: 'smooth' });
-                    }}
-                    disabled={isAnalyzing}
-                    className="h-8 w-8 p-0 hover:bg-primary/10 text-muted-foreground hover:text-primary"
-                  >
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                </div>
 
-                {/* Category Meals */}
-                {categoryMeals.length > 0 ? (
-                  <div className="space-y-2">
-                    {categoryMeals.map((meal) => (
-                      <MealCard key={meal.id} meal={meal} onDelete={handleDeleteMeal} onUpdateTime={handleUpdateMealTime} />
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-xs text-muted-foreground py-2 px-1 border-b border-border/30">
-                    No {cat.label.toLowerCase()} logged
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+                  {/* Category Meals (droppable + sortable) */}
+                  <DroppableCategory id={cat.key}>
+                    <SortableContext items={categoryMeals.map(m => m.id)} strategy={verticalListSortingStrategy}>
+                      {categoryMeals.length > 0 ? (
+                        <div className="space-y-2">
+                          {categoryMeals.map((meal) => (
+                            <MealCard key={meal.id} meal={meal} onDelete={handleDeleteMeal} onUpdateTime={handleUpdateMealTime} />
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-xs text-muted-foreground py-3 px-1 border-b border-border/30">
+                          No {cat.label.toLowerCase()} logged
+                        </div>
+                      )}
+                    </SortableContext>
+                  </DroppableCategory>
+                </div>
+              );
+            })}
+          </div>
+        </DndContext>
       )}
 
       {/* Review Modal */}

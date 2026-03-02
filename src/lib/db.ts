@@ -211,6 +211,11 @@ export async function initDatabase() {
       ALTER TABLE meals ADD COLUMN IF NOT EXISTS meal_category VARCHAR(20) NOT NULL DEFAULT 'snack';
     `;
 
+    // Add sort_order column for meal reordering
+    await sql`
+      ALTER TABLE meals ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0;
+    `;
+
     // Create saved_meals table (food bank)
     await sql`
       CREATE TABLE IF NOT EXISTS saved_meals (
@@ -984,14 +989,22 @@ export async function createMeal(
 ): Promise<Meal | null> {
   try {
     const createdAtValue = meal.createdAt || new Date().toISOString();
+    // Auto-assign sort_order: max + 1 for this user/date/category
+    const maxResult = await sql`
+      SELECT COALESCE(MAX(sort_order), -1) as max_order
+      FROM meals
+      WHERE user_id = ${userId} AND date = ${meal.date} AND meal_category = ${meal.category};
+    `;
+    const nextOrder = (maxResult.rows[0]?.max_order ?? -1) + 1;
+
     const result = await sql`
-      INSERT INTO meals (id, user_id, description, calories, protein, carbs, fat, meal_category, image_url, date, created_at)
+      INSERT INTO meals (id, user_id, description, calories, protein, carbs, fat, meal_category, image_url, date, created_at, sort_order)
       VALUES (
         ${meal.id}, ${userId}, ${meal.description},
         ${meal.macros.calories}, ${meal.macros.protein}, ${meal.macros.carbs}, ${meal.macros.fat},
-        ${meal.category}, ${meal.imageUrl || null}, ${meal.date}, ${createdAtValue}
+        ${meal.category}, ${meal.imageUrl || null}, ${meal.date}, ${createdAtValue}, ${nextOrder}
       )
-      RETURNING id, description, calories, protein, carbs, fat, meal_category, image_url, date, created_at;
+      RETURNING id, description, calories, protein, carbs, fat, meal_category, image_url, date, created_at, sort_order;
     `;
 
     const row = result.rows[0];
@@ -1007,6 +1020,7 @@ export async function createMeal(
       category: row.meal_category,
       imageUrl: row.image_url,
       createdAt: new Date(row.created_at),
+      sortOrder: row.sort_order,
     };
   } catch (error) {
     console.error('Error creating meal:', error);
@@ -1018,7 +1032,7 @@ export async function createMeal(
 export async function getUserMealsByDate(userId: string, date: string): Promise<Meal[]> {
   try {
     const result = await sql`
-      SELECT id, description, calories, protein, carbs, fat, meal_category, image_url, created_at
+      SELECT id, description, calories, protein, carbs, fat, meal_category, image_url, created_at, sort_order
       FROM meals
       WHERE user_id = ${userId} AND date = ${date}
       ORDER BY
@@ -1029,6 +1043,7 @@ export async function getUserMealsByDate(userId: string, date: string): Promise<
           WHEN 'dinner' THEN 4
           ELSE 5
         END,
+        sort_order ASC,
         created_at ASC;
     `;
 
@@ -1044,6 +1059,7 @@ export async function getUserMealsByDate(userId: string, date: string): Promise<
       category: row.meal_category || 'snack',
       imageUrl: row.image_url,
       createdAt: new Date(row.created_at),
+      sortOrder: row.sort_order ?? 0,
     }));
   } catch (error) {
     console.error('Error getting meals by date:', error);
@@ -1059,7 +1075,7 @@ export async function getUserMealsForDateRange(
 ): Promise<{ date: string; meals: Meal[] }[]> {
   try {
     const result = await sql`
-      SELECT id, description, calories, protein, carbs, fat, meal_category, image_url, date, created_at
+      SELECT id, description, calories, protein, carbs, fat, meal_category, image_url, date, created_at, sort_order
       FROM meals
       WHERE user_id = ${userId} AND date >= ${startDate} AND date <= ${endDate}
       ORDER BY date DESC,
@@ -1070,6 +1086,7 @@ export async function getUserMealsForDateRange(
           WHEN 'dinner' THEN 4
           ELSE 5
         END,
+        sort_order ASC,
         created_at ASC;
     `;
 
@@ -1088,6 +1105,7 @@ export async function getUserMealsForDateRange(
         category: row.meal_category || 'snack',
         imageUrl: row.image_url,
         createdAt: new Date(row.created_at),
+        sortOrder: row.sort_order ?? 0,
       };
       if (!byDate.has(dateKey)) byDate.set(dateKey, []);
       byDate.get(dateKey)!.push(meal);
@@ -1126,7 +1144,7 @@ export async function updateMealTime(
       UPDATE meals
       SET created_at = ${createdAt}, meal_category = ${category}
       WHERE id = ${mealId} AND user_id = ${userId}
-      RETURNING id, description, calories, protein, carbs, fat, meal_category, image_url, date, created_at;
+      RETURNING id, description, calories, protein, carbs, fat, meal_category, image_url, date, created_at, sort_order;
     `;
 
     if (result.rows.length === 0) return null;
@@ -1144,10 +1162,31 @@ export async function updateMealTime(
       category: row.meal_category,
       imageUrl: row.image_url,
       createdAt: new Date(row.created_at),
+      sortOrder: row.sort_order ?? 0,
     };
   } catch (error) {
     console.error('Error updating meal time:', error);
     return null;
+  }
+}
+
+// Reorder meals (batch update sort_order and category)
+export async function reorderMeals(
+  userId: string,
+  updates: { id: string; category: MealCategory; sortOrder: number }[]
+): Promise<boolean> {
+  try {
+    for (const update of updates) {
+      await sql`
+        UPDATE meals
+        SET meal_category = ${update.category}, sort_order = ${update.sortOrder}
+        WHERE id = ${update.id} AND user_id = ${userId};
+      `;
+    }
+    return true;
+  } catch (error) {
+    console.error('Error reordering meals:', error);
+    return false;
   }
 }
 
