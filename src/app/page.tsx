@@ -35,16 +35,14 @@ export default function Home() {
 
   const workoutGroups = useMemo(() => groupWorkoutsByDate(workouts), [workouts]);
 
-  // On mount, if there is a draft in localStorage, auto-open the form
+  // On mount, auto-open the form only if a draft with actual exercises exists
   const hasCheckedDraftRef = useRef(false);
   useEffect(() => {
     if (isLoading || hasCheckedDraftRef.current || isCreating || editingWorkout) return;
     try {
-      // Prefer an edit draft first if any existing workout draft exists, else the "new" draft
       const draftKeys = Object.keys(localStorage).filter((k) => k.startsWith('workout-ai-draft-'));
       if (draftKeys.length === 0) return;
 
-      // Choose the most recently updated draft
       let latestKey: string | null = null;
       let latestTime = 0;
       for (const key of draftKeys) {
@@ -52,6 +50,8 @@ export default function Home() {
         if (!raw) continue;
         try {
           const parsed = JSON.parse(raw);
+          const exercises = parsed?.exercises;
+          if (!Array.isArray(exercises) || exercises.length === 0) continue;
           const t = parsed?.updatedAt ? new Date(parsed.updatedAt).getTime() : 0;
           if (t > latestTime) {
             latestTime = t;
@@ -63,15 +63,9 @@ export default function Home() {
       }
 
       if (!latestKey) return;
-      const latestRaw = localStorage.getItem(latestKey);
-      if (!latestRaw) return;
-      const latestDraft = JSON.parse(latestRaw);
 
-      // If key is for an existing workout id, open edit; else open create
-      const parts = latestKey.split('workout-ai-draft-');
-      const targetId = parts[1];
+      const targetId = latestKey.split('workout-ai-draft-')[1];
       if (targetId && targetId !== 'new') {
-        // Try to find that workout in current list; if not loaded yet, we will still open create with draft
         const existing = workouts.find((w) => w.id === targetId);
         if (existing) {
           setEditingWorkout(existing);
