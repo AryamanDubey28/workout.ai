@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Workout, Exercise, WorkoutPreset, WorkoutType } from '@/types/workout';
 import { calculatePace, formatPace } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { Drawer, DrawerContent } from '@/components/ui/drawer';
+import { Drawer, DrawerContent, DrawerTitle } from '@/components/ui/drawer';
 import { ExerciseRow } from './ExerciseRow';
 import { useExerciseCache } from '@/hooks/useExerciseCache';
 import { PresetPicker } from './PresetPicker';
@@ -14,6 +14,7 @@ import {
   closestCenter,
   KeyboardSensor,
   PointerSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   DragEndEvent,
@@ -64,7 +65,8 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
   const [showDatePicker, setShowDatePicker] = useState(false);
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
@@ -409,7 +411,8 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
 
   return (
     <Drawer open={true} onOpenChange={(open) => { if (!open) handleClose(); }}>
-      <DrawerContent style={{ height: '95dvh', maxHeight: '95dvh' }}>
+      <DrawerContent style={{ height: '95dvh', maxHeight: '95dvh' }} aria-describedby={undefined}>
+        <DrawerTitle className="sr-only">{workout ? 'Edit Workout' : 'New Workout'}</DrawerTitle>
         <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
         {/* Header */}
         <div className="shrink-0 border-b px-4 pb-3 pt-2">
@@ -435,9 +438,9 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
             ) : (
               <button
                 onClick={() => setShowDatePicker(true)}
-                className="text-xs px-2.5 py-1 rounded-full bg-muted hover:bg-muted/80 text-muted-foreground flex items-center gap-1 transition-colors"
+                className="text-xs px-3 py-2 rounded-full bg-muted hover:bg-muted/80 text-muted-foreground flex items-center gap-1 transition-colors"
               >
-                <Calendar className="h-3 w-3" />
+                <Calendar className="h-3.5 w-3.5" />
                 {workoutDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
               </button>
             )}
@@ -446,20 +449,20 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
             <div className="flex rounded-full border overflow-hidden">
               <button
                 onClick={() => handleTypeChange('strength')}
-                className={`text-xs px-3 py-1 flex items-center gap-1 transition-colors ${
+                className={`text-xs px-3 py-2 flex items-center gap-1 transition-colors ${
                   workoutType === 'strength' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'
                 }`}
               >
-                <Dumbbell className="h-3 w-3" />
+                <Dumbbell className="h-3.5 w-3.5" />
                 Strength
               </button>
               <button
                 onClick={() => handleTypeChange('run')}
-                className={`text-xs px-3 py-1 flex items-center gap-1 transition-colors ${
+                className={`text-xs px-3 py-2 flex items-center gap-1 transition-colors ${
                   workoutType === 'run' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'
                 }`}
               >
-                <Footprints className="h-3 w-3" />
+                <Footprints className="h-3.5 w-3.5" />
                 Run
               </button>
             </div>
@@ -468,9 +471,9 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
             {!showNote && (
               <button
                 onClick={() => { setShowNote(true); setNoteJustActivated(true); }}
-                className="text-xs px-2.5 py-1 rounded-full bg-muted hover:bg-muted/80 text-muted-foreground flex items-center gap-1 transition-colors"
+                className="text-xs px-3 py-2 rounded-full bg-muted hover:bg-muted/80 text-muted-foreground flex items-center gap-1 transition-colors"
               >
-                <StickyNote className="h-3 w-3" />
+                <StickyNote className="h-3.5 w-3.5" />
                 Note
               </button>
             )}
@@ -500,7 +503,7 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
               value={note}
               onChange={(e) => setNote(e.target.value)}
               rows={2}
-              className="mt-2 w-full resize-none rounded-lg border border-border/40 bg-muted/30 px-3 py-2 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
+              className="mt-2 w-full resize-none rounded-lg border border-border/40 bg-muted/30 px-3 py-2 text-base placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
               autoFocus={noteJustActivated}
               onFocus={() => setNoteJustActivated(false)}
             />
@@ -525,9 +528,9 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
                     placeholder="0.00"
                     value={distanceKm}
                     onChange={(e) => setDistanceKm(e.target.value)}
-                    className="w-full px-3 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-10 transition-colors"
+                    className="w-full px-3 py-2 text-base border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-10 transition-colors"
                   />
-                  <span className="text-[10px] text-muted-foreground mt-1 block px-0.5">Distance (km)</span>
+                  <span className="text-xs text-muted-foreground mt-1 block px-0.5">Distance (km)</span>
                 </div>
                 <div>
                   <input
@@ -536,9 +539,9 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
                     placeholder="0"
                     value={durationMinutes}
                     onChange={(e) => setDurationMinutes(e.target.value)}
-                    className="w-full px-3 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-10 transition-colors"
+                    className="w-full px-3 py-2 text-base border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-10 transition-colors"
                   />
-                  <span className="text-[10px] text-muted-foreground mt-1 block px-0.5">Minutes</span>
+                  <span className="text-xs text-muted-foreground mt-1 block px-0.5">Minutes</span>
                 </div>
                 <div>
                   <input
@@ -548,9 +551,9 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
                     placeholder="0"
                     value={durationSeconds}
                     onChange={(e) => setDurationSeconds(e.target.value)}
-                    className="w-full px-3 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-10 transition-colors"
+                    className="w-full px-3 py-2 text-base border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-10 transition-colors"
                   />
-                  <span className="text-[10px] text-muted-foreground mt-1 block px-0.5">Seconds</span>
+                  <span className="text-xs text-muted-foreground mt-1 block px-0.5">Seconds</span>
                 </div>
               </div>
               {(() => {
@@ -604,16 +607,16 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
 
         {/* Bottom action bar */}
         <div className="shrink-0 border-t bg-background px-4 py-3 flex items-center gap-2 safe-area-bottom">
-          <Button variant="outline" onClick={addExercise} className="flex-1 h-10">
+          <Button variant="outline" onClick={addExercise} className="flex-1 h-11">
             <Plus className="h-4 w-4 mr-1.5" />
             {workoutType === 'run' && exercises.length === 0 ? 'Add Exercises' : 'Add Exercise'}
           </Button>
           {!workout && (
-            <Button variant="outline" size="icon" onClick={handleOpenPresetPicker} className="h-10 w-10 shrink-0">
+            <Button variant="outline" size="icon" onClick={handleOpenPresetPicker} className="h-11 w-11 shrink-0" aria-label="Load from preset">
               <BookTemplate className="h-4 w-4" />
             </Button>
           )}
-          <Button onClick={handleClose} disabled={isSaving} className="px-6 h-10 shrink-0">
+          <Button onClick={handleClose} disabled={isSaving} className="px-6 h-11 shrink-0">
             {isSaving ? 'Saving...' : 'Done'}
           </Button>
         </div>

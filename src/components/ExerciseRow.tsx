@@ -79,7 +79,7 @@ function WeightInputs({ exercise, onChange }: WeightInputsProps) {
           type="button"
           variant={exercise.weight === 'BW' ? 'default' : 'outline'}
           onClick={() => handleGeneralWeightChange(exercise.weight === 'BW' ? '' : 'BW')}
-          className="px-3 py-2 text-xs font-medium shrink-0 h-10"
+          className="px-3 py-2 text-sm font-medium shrink-0 h-10 min-w-[44px]"
         >
           BW
         </Button>
@@ -89,7 +89,7 @@ function WeightInputs({ exercise, onChange }: WeightInputsProps) {
             placeholder="Weight (kg)"
             value={exercise.weight || ''}
             onChange={(e) => handleGeneralWeightChange(e.target.value)}
-            className="flex-1 px-3 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-10 transition-colors"
+            className="flex-1 px-3 py-2 text-base border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-10 transition-colors"
           />
         )}
       </div>
@@ -105,7 +105,7 @@ function WeightInputs({ exercise, onChange }: WeightInputsProps) {
             type="button"
             variant={exercise.weight === 'BW' ? 'default' : 'outline'}
             onClick={() => handleGeneralWeightChange(exercise.weight === 'BW' ? '' : 'BW')}
-            className="px-3 py-2 text-xs font-medium shrink-0 h-10"
+            className="px-3 py-2 text-sm font-medium shrink-0 h-10 min-w-[44px]"
           >
             BW
           </Button>
@@ -115,7 +115,7 @@ function WeightInputs({ exercise, onChange }: WeightInputsProps) {
               placeholder="Weight (kg)"
               value={exercise.weight || ''}
               onChange={(e) => handleGeneralWeightChange(e.target.value)}
-              className="flex-1 px-3 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-10 transition-colors"
+              className="flex-1 px-3 py-2 text-base border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-10 transition-colors"
             />
           )}
         </div>
@@ -147,7 +147,7 @@ function WeightInputs({ exercise, onChange }: WeightInputsProps) {
         <div className="flex gap-2 min-w-min">
           {Array.from({ length: exercise.sets || 0 }, (_, index) => (
             <div key={index} className="flex items-center gap-1 shrink-0">
-              <span className="text-[10px] text-muted-foreground shrink-0 w-3 text-right">{index + 1}</span>
+              <span className="text-[11px] text-muted-foreground shrink-0 w-3 text-right">{index + 1}</span>
               <Button
                 type="button"
                 variant={exercise.weightsPerSet?.[index] === 'BW' ? 'default' : 'outline'}
@@ -162,7 +162,7 @@ function WeightInputs({ exercise, onChange }: WeightInputsProps) {
                   placeholder="kg"
                   value={exercise.weightsPerSet?.[index] || ''}
                   onChange={(e) => handleWeightForSetChange(index, e.target.value)}
-                  className="w-14 px-2 py-1 text-xs border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-7 text-center transition-colors"
+                  className="w-14 px-2 py-1 text-base border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-8 text-center transition-colors"
                 />
               )}
             </div>
@@ -229,9 +229,9 @@ function SetsAndRepsInputs({ exercise, onChange }: SetsAndRepsInputsProps) {
             placeholder="Sets"
             value={exercise.sets || ''}
             onChange={(e) => handleSetsChange(parseInt(e.target.value) || undefined)}
-            className="w-full px-3 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-10 transition-colors"
+            className="w-full px-3 py-2 text-base border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-10 transition-colors"
           />
-          <span className="text-[10px] text-muted-foreground mt-1 block px-0.5">Sets</span>
+          <span className="text-xs text-muted-foreground mt-1 block px-0.5">Sets</span>
         </div>
         <div>
           <input
@@ -239,9 +239,9 @@ function SetsAndRepsInputs({ exercise, onChange }: SetsAndRepsInputsProps) {
             placeholder="Reps"
             value={exercise.reps || ''}
             onChange={(e) => handleGeneralRepsChange(parseInt(e.target.value) || undefined)}
-            className="w-full px-3 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-10 transition-colors"
+            className="w-full px-3 py-2 text-base border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-10 transition-colors"
           />
-          <span className="text-[10px] text-muted-foreground mt-1 block px-0.5">Reps</span>
+          <span className="text-xs text-muted-foreground mt-1 block px-0.5">Reps</span>
         </div>
       </div>
     );
@@ -257,9 +257,9 @@ function SetsAndRepsInputs({ exercise, onChange }: SetsAndRepsInputsProps) {
             placeholder="Sets"
             value={exercise.sets || ''}
             onChange={(e) => handleSetsChange(parseInt(e.target.value) || undefined)}
-            className="w-full px-3 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-10 transition-colors"
+            className="w-full px-3 py-2 text-base border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-10 transition-colors"
           />
-          <span className="text-[10px] text-muted-foreground mt-1 block px-0.5">Sets</span>
+          <span className="text-xs text-muted-foreground mt-1 block px-0.5">Sets</span>
         </div>
         <div>
           <input
@@ -267,9 +267,9 @@ function SetsAndRepsInputs({ exercise, onChange }: SetsAndRepsInputsProps) {
             placeholder="Fill all"
             value={exercise.reps || ''}
             onChange={(e) => handleGeneralRepsChange(parseInt(e.target.value) || undefined)}
-            className="w-full px-3 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-10 transition-colors"
+            className="w-full px-3 py-2 text-base border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-10 transition-colors"
           />
-          <span className="text-[10px] text-muted-foreground mt-1 block px-0.5">Quick fill</span>
+          <span className="text-xs text-muted-foreground mt-1 block px-0.5">Quick fill</span>
         </div>
       </div>
 
@@ -283,9 +283,9 @@ function SetsAndRepsInputs({ exercise, onChange }: SetsAndRepsInputsProps) {
                 placeholder="0"
                 value={exercise.repsPerSet?.[index] || ''}
                 onChange={(e) => handleRepsForSetChange(index, parseInt(e.target.value) || undefined)}
-                className="w-full px-2 py-1.5 text-xs border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-8 text-center transition-colors"
+                className="w-full px-2 py-1.5 text-base border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-10 text-center transition-colors"
               />
-              <span className="text-[9px] text-muted-foreground text-center block mt-0.5">Set {index + 1}</span>
+              <span className="text-[11px] text-muted-foreground text-center block mt-0.5">Set {index + 1}</span>
             </div>
           ))}
         </div>
@@ -390,10 +390,12 @@ export function ExerciseRow({ exercise, onChange, onDelete, isExpanded = false, 
           <div className="flex items-center gap-2.5 px-3 py-3 cursor-pointer select-none">
             {/* Drag handle */}
             <button
-              className="touch-none shrink-0 opacity-30 hover:opacity-70 cursor-grab active:cursor-grabbing p-0.5 -ml-0.5"
+              className="touch-none shrink-0 opacity-30 hover:opacity-70 cursor-grab active:cursor-grabbing min-h-[44px] min-w-[44px] flex items-center justify-center -ml-2"
+              data-vaul-no-drag
               {...attributes}
               {...listeners}
               onClick={(e) => e.stopPropagation()}
+              aria-label="Drag to reorder"
               title="Drag to reorder"
             >
               <GripVertical className="h-4 w-4 text-muted-foreground" />
@@ -463,9 +465,9 @@ export function ExerciseRow({ exercise, onChange, onDelete, isExpanded = false, 
                     placeholder="Max"
                     value={exercise.effectiveRepsMax || ''}
                     onChange={(e) => handleInputChange('effectiveRepsMax', parseInt(e.target.value) || undefined)}
-                    className="w-full px-3 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-10 transition-colors"
+                    className="w-full px-3 py-2 text-base border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-10 transition-colors"
                   />
-                  <span className="text-[10px] text-muted-foreground mt-1 block px-0.5">Max reps</span>
+                  <span className="text-xs text-muted-foreground mt-1 block px-0.5">Max reps</span>
                 </div>
                 <div>
                   <input
@@ -473,9 +475,9 @@ export function ExerciseRow({ exercise, onChange, onDelete, isExpanded = false, 
                     placeholder="Target"
                     value={exercise.effectiveRepsTarget || ''}
                     onChange={(e) => handleInputChange('effectiveRepsTarget', parseInt(e.target.value) || undefined)}
-                    className="w-full px-3 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-10 transition-colors"
+                    className="w-full px-3 py-2 text-base border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary h-10 transition-colors"
                   />
-                  <span className="text-[10px] text-muted-foreground mt-1 block px-0.5">Target total</span>
+                  <span className="text-xs text-muted-foreground mt-1 block px-0.5">Target total</span>
                 </div>
               </div>
             ) : (
@@ -487,7 +489,7 @@ export function ExerciseRow({ exercise, onChange, onDelete, isExpanded = false, 
               type="button"
               variant="outline"
               onClick={onDelete}
-              className="w-full text-destructive hover:text-destructive hover:bg-destructive/5 hover:border-destructive/30 transition-colors"
+              className="w-full h-11 text-destructive hover:text-destructive hover:bg-destructive/5 hover:border-destructive/30 transition-colors"
             >
               <Trash2 className="h-3.5 w-3.5 mr-1.5" />
               Remove Exercise

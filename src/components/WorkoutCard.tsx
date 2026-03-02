@@ -27,7 +27,7 @@ export function WorkoutCard({ workout, onClick, onDelete }: WorkoutCardProps) {
       className="flex items-start gap-3 rounded-xl border border-border/50 bg-card/50 p-4 transition-colors active:bg-card/80 cursor-pointer"
       onClick={onClick}
     >
-      <div className="flex-1 min-w-0">
+      <div className="flex-1 min-w-0 overflow-hidden">
         <div className="flex items-center gap-2">
           <span className="font-semibold text-sm truncate">
             {workout.name || 'Untitled Workout'}
@@ -79,7 +79,8 @@ export function WorkoutCard({ workout, onClick, onDelete }: WorkoutCardProps) {
           e.stopPropagation();
           onDelete();
         }}
-        className="shrink-0 p-1.5 rounded-lg text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10 transition-colors"
+        className="shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10 transition-colors"
+        aria-label={`Delete ${workout.name || 'workout'}`}
         title="Delete workout"
       >
         <Trash2 className="h-4 w-4" />

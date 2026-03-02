@@ -476,13 +476,13 @@ export default function Home() {
                     </div>
                   </div>
                 ) : (
-                  <div className="space-y-6">
+                  <div className="space-y-6 overflow-hidden">
                     {workoutGroups.map((group) => (
                       <div key={group.label}>
                         <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 px-1">
                           {group.label}
                         </h3>
-                        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                        <div className="grid gap-2 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
                           {group.workouts.map((workout) => (
                             <WorkoutCard
                               key={workout.id}
