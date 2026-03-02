@@ -27,7 +27,7 @@ export function PresetPicker({
 }: PresetPickerProps) {
   return (
     <Drawer open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DrawerContent className="max-h-[60dvh]">
+      <DrawerContent className="max-h-[60dvh]" aria-describedby={undefined}>
         <DrawerHeader>
           <DrawerTitle className="flex items-center gap-2">
             <Dumbbell className="h-4 w-4 text-primary" />

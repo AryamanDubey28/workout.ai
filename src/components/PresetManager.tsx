@@ -11,6 +11,7 @@ import {
   closestCenter,
   KeyboardSensor,
   PointerSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   DragEndEvent,
@@ -65,8 +66,10 @@ function SortablePresetCard({
           <div className="flex items-center gap-3">
             <button
               className="cursor-grab active:cursor-grabbing touch-none text-muted-foreground hover:text-foreground transition-colors p-1"
+              data-vaul-no-drag
               {...attributes}
               {...listeners}
+              aria-label="Drag to reorder"
             >
               <GripVertical className="h-5 w-5" />
             </button>
@@ -101,7 +104,8 @@ function SortablePresetCard({
                 variant="ghost"
                 size="sm"
                 onClick={onEdit}
-                className="h-8 w-8 p-0 interactive-scale"
+                className="h-10 w-10 p-0 interactive-scale"
+                aria-label={`Edit ${preset.name}`}
               >
                 <Pencil className="h-4 w-4" />
               </Button>
@@ -109,7 +113,8 @@ function SortablePresetCard({
                 variant="ghost"
                 size="sm"
                 onClick={onDelete}
-                className="h-8 w-8 p-0 text-destructive hover:text-destructive interactive-scale"
+                className="h-10 w-10 p-0 text-destructive hover:text-destructive interactive-scale"
+                aria-label={`Delete ${preset.name}`}
               >
                 <Trash2 className="h-4 w-4" />
               </Button>
@@ -129,12 +134,9 @@ export function PresetManager({ onBack }: PresetManagerProps) {
   const [deletingPresetId, setDeletingPresetId] = useState<string | null>(null);
 
   const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 5 },
-    }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    })
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
   const loadPresets = useCallback(async () => {

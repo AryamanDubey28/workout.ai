@@ -515,7 +515,7 @@ export function UserProfile({ user, onLogout, onManagePresets }: UserProfileProp
 
       {/* About You Drawer — full facts management */}
       <Drawer open={showFacts} onOpenChange={setShowFacts}>
-        <DrawerContent style={{ height: '85dvh' }}>
+        <DrawerContent style={{ height: '85dvh' }} aria-describedby={undefined}>
           <div className="flex flex-col h-full overflow-hidden">
             <DrawerHeader className="shrink-0">
               <DrawerTitle className="flex items-center gap-2">
@@ -649,7 +649,7 @@ export function UserProfile({ user, onLogout, onManagePresets }: UserProfileProp
 
       {/* AI Personality Drawer */}
       <Drawer open={showSoulDrawer} onOpenChange={setShowSoulDrawer}>
-        <DrawerContent style={{ height: '85dvh' }}>
+        <DrawerContent style={{ height: '85dvh' }} aria-describedby={undefined}>
           <div className="flex flex-col h-full overflow-hidden">
             <DrawerHeader className="shrink-0">
               <DrawerTitle className="flex items-center gap-2">
@@ -1091,7 +1091,7 @@ export function UserProfile({ user, onLogout, onManagePresets }: UserProfileProp
       {/* Version info */}
       <div className="flex justify-center mt-4 animate-fade-in animation-delay-700">
         <span className="text-xs text-muted-foreground/60 font-mono">
-          v3.2.0
+          v3.3.0
         </span>
       </div>
     </div>

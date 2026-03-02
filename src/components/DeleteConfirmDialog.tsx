@@ -45,10 +45,10 @@ export function DeleteConfirmDialog({
           </div>
         </DialogHeader>
         <DialogFooter>
-          <Button variant="outline" onClick={onCancel}>
+          <Button variant="outline" onClick={onCancel} className="h-11">
             Cancel
           </Button>
-          <Button variant="destructive" onClick={onConfirm}>
+          <Button variant="destructive" onClick={onConfirm} className="h-11">
             Delete
           </Button>
         </DialogFooter>
