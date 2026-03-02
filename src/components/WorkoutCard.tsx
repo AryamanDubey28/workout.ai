@@ -1,8 +1,27 @@
 'use client';
 
-import { Workout } from '@/types/workout';
+import { Workout, Exercise } from '@/types/workout';
 import { Trash2, Footprints } from 'lucide-react';
 import { calculatePace, formatPace, formatDuration, formatDistance } from '@/lib/utils';
+
+function formatExerciseDetail(exercise: Exercise): string {
+  const weight = exercise.weight === 'BW' ? 'BW' : exercise.weight ? `${exercise.weight}kg` : '';
+
+  let setsReps = '';
+  if (exercise.useEffectiveReps) {
+    setsReps = `${exercise.effectiveRepsMax || '?'}/${exercise.effectiveRepsTarget || '?'} ER`;
+  } else if (exercise.repsPerSet && exercise.repsPerSet.length > 0) {
+    const allSame = exercise.repsPerSet.every(r => r === exercise.repsPerSet![0]);
+    setsReps = allSame
+      ? `${exercise.repsPerSet.length}×${exercise.repsPerSet[0]}`
+      : exercise.repsPerSet.join(',');
+  } else if (exercise.sets && exercise.reps) {
+    setsReps = `${exercise.sets}×${exercise.reps}`;
+  }
+
+  if (weight && setsReps) return `${weight} × ${setsReps}`;
+  return weight || setsReps;
+}
 
 interface WorkoutCardProps {
   workout: Workout;
@@ -11,15 +30,7 @@ interface WorkoutCardProps {
 }
 
 export function WorkoutCard({ workout, onClick, onDelete }: WorkoutCardProps) {
-  const exerciseNames = workout.exercises
-    .map((e) => e.name)
-    .filter(Boolean);
-
-  const displayNames = exerciseNames.slice(0, 3);
-  const extraCount = exerciseNames.length - 3;
-  const exerciseSummary =
-    displayNames.join(' / ') + (extraCount > 0 ? ` +${extraCount}` : '');
-
+  const exercises = workout.exercises.filter((e) => e.name);
   const isRun = (workout.type || 'strength') === 'run';
 
   return (
@@ -67,10 +78,18 @@ export function WorkoutCard({ workout, onClick, onDelete }: WorkoutCardProps) {
           </p>
         )}
 
-        {exerciseSummary && (
-          <p className="text-xs text-muted-foreground mt-1 truncate">
-            {exerciseSummary}
-          </p>
+        {exercises.length > 0 && (
+          <div className="mt-1.5 space-y-0.5">
+            {exercises.map((exercise) => {
+              const detail = formatExerciseDetail(exercise);
+              return (
+                <p key={exercise.id} className="text-xs text-muted-foreground truncate">
+                  <span className="text-foreground/70">{exercise.name}</span>
+                  {detail && <span className="text-muted-foreground"> — {detail}</span>}
+                </p>
+              );
+            })}
+          </div>
         )}
       </div>
 
