@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Meal, MealCategory } from '@/types/meal';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Trash2, Pencil, GripVertical } from 'lucide-react';
+import { Trash2, Pencil } from 'lucide-react';
 import { getCategoryForTime, timeToInputValue, inputValueToDate } from '@/lib/mealUtils';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -46,20 +46,10 @@ export function MealCard({ meal, onDelete, onUpdateTime }: MealCardProps) {
   };
 
   return (
-    <div ref={setNodeRef} style={style}>
-      <Card className={`border-border/50 bg-card/50 backdrop-blur-sm overflow-hidden group hover:shadow-md transition-all duration-200 ${isDragging ? 'opacity-50 shadow-lg scale-[1.02]' : ''}`}>
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      <Card className={`border-border/50 bg-card/50 backdrop-blur-sm overflow-hidden group hover:shadow-md transition-all duration-200 touch-none ${isDragging ? 'opacity-50 shadow-lg scale-[1.02]' : ''}`}>
         <CardContent className="p-4">
-          <div className="flex items-start gap-2">
-            <button
-              className="touch-none shrink-0 opacity-30 hover:opacity-70 cursor-grab active:cursor-grabbing min-h-[44px] min-w-[44px] flex items-center justify-center -ml-2"
-              {...attributes}
-              {...listeners}
-              onClick={(e) => e.stopPropagation()}
-              aria-label="Drag to reorder"
-              title="Drag to reorder"
-            >
-              <GripVertical className="h-4 w-4 text-muted-foreground" />
-            </button>
+          <div className="flex items-start justify-between gap-3">
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-2">
                 {isEditingTime ? (

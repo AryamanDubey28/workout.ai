@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Autocomplete } from '@/components/ui/autocomplete';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { Trash2, ChevronDown, GripVertical } from 'lucide-react';
+import { Trash2, ChevronDown } from 'lucide-react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
@@ -377,6 +377,7 @@ export function ExerciseRow({ exercise, onChange, onDelete, isExpanded = false, 
     <div
       ref={setNodeRef}
       style={style}
+      data-vaul-no-drag
       className={cn(
         'rounded-xl border transition-all duration-200',
         isDragging && 'opacity-50 shadow-lg scale-[1.02]',
@@ -387,20 +388,11 @@ export function ExerciseRow({ exercise, onChange, onDelete, isExpanded = false, 
     >
       <Collapsible open={isExpanded} onOpenChange={() => onToggleExpand?.()}>
         <CollapsibleTrigger asChild>
-          <div className="flex items-center gap-2.5 px-3 py-3 cursor-pointer select-none">
-            {/* Drag handle */}
-            <button
-              className="touch-none shrink-0 opacity-30 hover:opacity-70 cursor-grab active:cursor-grabbing min-h-[44px] min-w-[44px] flex items-center justify-center -ml-2"
-              data-vaul-no-drag
-              {...attributes}
-              {...listeners}
-              onClick={(e) => e.stopPropagation()}
-              aria-label="Drag to reorder"
-              title="Drag to reorder"
-            >
-              <GripVertical className="h-4 w-4 text-muted-foreground" />
-            </button>
-
+          <div
+            className="flex items-center gap-2.5 px-3 py-3 cursor-pointer select-none touch-none"
+            {...attributes}
+            {...listeners}
+          >
             {/* Exercise name */}
             <span className="text-sm font-medium flex-1 truncate">
               {exercise.name || 'New Exercise'}

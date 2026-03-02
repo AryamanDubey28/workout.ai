@@ -6,6 +6,8 @@ import { runFoodSuggestionAgent } from '@/lib/agents/foodSuggestionAgent';
 // GET /api/meals?date=YYYY-MM-DD - Get meals for a specific date
 export async function GET(request: NextRequest) {
   try {
+    await initDatabase();
+
     const session = await getSessionFromCookie();
     if (!session) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
