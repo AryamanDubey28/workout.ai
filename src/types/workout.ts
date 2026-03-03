@@ -45,3 +45,11 @@ export interface SplitReminder {
   nextPreset: WorkoutPreset | null;
   completedToday: boolean;
 }
+
+export interface ForecastDay {
+  date: string;                    // YYYY-MM-DD
+  presetId: string | null;         // null = rest day
+  presetName: string | null;
+  presetType: WorkoutType | null;
+  isOverride: boolean;             // true if user manually set this day
+}
