@@ -1760,6 +1760,14 @@ export async function clearPendingSuggestions(userId: string): Promise<void> {
   }
 }
 
+export async function deleteAllFoodSuggestions(userId: string): Promise<void> {
+  try {
+    await sql`DELETE FROM food_suggestions WHERE user_id = ${userId};`;
+  } catch (error) {
+    console.error('Error deleting all food suggestions:', error);
+  }
+}
+
 // ===== USER FACT FUNCTIONS =====
 
 function mapUserFactRow(row: any): UserFact {
@@ -1817,6 +1825,14 @@ export async function deleteUserFact(userId: string, factId: string): Promise<bo
   }
 }
 
+export async function deleteAllUserFacts(userId: string): Promise<void> {
+  try {
+    await sql`DELETE FROM user_facts WHERE user_id = ${userId};`;
+  } catch (error) {
+    console.error('Error deleting all user facts:', error);
+  }
+}
+
 export async function createUserFactsBatch(
   userId: string,
   facts: Array<{ category: FactCategory; content: string; source: FactSource }>
@@ -1827,6 +1843,26 @@ export async function createUserFactsBatch(
     if (result) created.push(result);
   }
   return created;
+}
+
+/** Delete all AI-extracted facts in the given categories (used to refresh behavioral facts) */
+export async function deleteAiFactsByCategories(
+  userId: string,
+  categories: string[]
+): Promise<void> {
+  try {
+    // sql tag doesn't support array params — use OR conditions
+    for (const category of categories) {
+      await sql`
+        DELETE FROM user_facts
+        WHERE user_id = ${userId}
+          AND source = 'ai_extracted'
+          AND category = ${category};
+      `;
+    }
+  } catch (error) {
+    console.error('Error deleting AI facts by categories:', error);
+  }
 }
 
 export async function getRecentConversationIds(userId: string, limit: number = 3): Promise<string[]> {
