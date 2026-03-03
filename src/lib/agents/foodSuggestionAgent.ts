@@ -9,6 +9,7 @@ import {
   clearPendingSuggestions,
   createFoodSuggestion,
 } from "@/lib/db";
+import { jaccardSimilarity } from "@/lib/textSimilarity";
 
 // --- Zod schema for structured LLM output ---
 const SuggestionsOutputSchema = z.object({
@@ -30,6 +31,10 @@ const AgentState = Annotation.Root({
   userId: Annotation<string>,
   mealHistory: Annotation<string>,
   savedMealNames: Annotation<string>,
+  savedMealsList: Annotation<Array<{ name: string; description: string }>>({
+    reducer: (_a, b) => b ?? [],
+    default: () => [],
+  }),
   existingSuggestions: Annotation<string>,
   suggestions: Annotation<z.infer<typeof SuggestionsOutputSchema>["suggestions"]>({
     reducer: (_a, b) => b ?? [],
@@ -40,6 +45,8 @@ const AgentState = Annotation.Root({
     default: () => null,
   }),
 });
+
+const FOOD_SIMILARITY_THRESHOLD = 0.5;
 
 // --- Node: Fetch data from DB ---
 async function fetchData(state: typeof AgentState.State): Promise<Partial<typeof AgentState.State>> {
@@ -83,11 +90,16 @@ async function fetchData(state: typeof AgentState.State): Promise<Partial<typeof
       ? savedMeals.map((s) => `"${s.name}" - ${s.description}`).join("\n")
       : "(none)";
 
+    const savedMealsList = savedMeals.map((s) => ({
+      name: s.name,
+      description: s.description,
+    }));
+
     const existingSuggestions = recentSuggestions.length > 0
       ? recentSuggestions.map((s) => `"${s.name}" (${s.status})`).join(", ")
       : "(none)";
 
-    return { mealHistory, savedMealNames, existingSuggestions };
+    return { mealHistory, savedMealNames, savedMealsList, existingSuggestions };
   } catch (err) {
     console.error("Food suggestion agent - fetchData error:", err);
     return { error: "Failed to fetch data" };
@@ -143,10 +155,28 @@ async function save(state: typeof AgentState.State): Promise<Partial<typeof Agen
   if (!state.suggestions || state.suggestions.length === 0) return {};
 
   try {
+    // Programmatic safety-net: filter out suggestions that are too similar to existing food bank items
+    // (LLM is instructed to skip these, but this catches edge cases)
+    const savedNames = (state.savedMealsList || []).map((m) => m.name);
+    const savedDescriptions = (state.savedMealsList || []).map((m) => m.description);
+
+    const filteredSuggestions = state.suggestions.filter((s) => {
+      // Check name similarity against saved meal names AND descriptions
+      const similarToName = savedNames.some(
+        (name) => jaccardSimilarity(s.name, name) >= FOOD_SIMILARITY_THRESHOLD
+      );
+      const similarToDesc = savedDescriptions.some(
+        (desc) => jaccardSimilarity(s.name, desc) >= FOOD_SIMILARITY_THRESHOLD
+      );
+      return !similarToName && !similarToDesc;
+    });
+
+    if (filteredSuggestions.length === 0) return {};
+
     // Clear old pending suggestions before writing new batch
     await clearPendingSuggestions(state.userId);
 
-    for (const s of state.suggestions) {
+    for (const s of filteredSuggestions) {
       await createFoodSuggestion(state.userId, {
         name: s.name,
         description: s.description,

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSessionFromCookie } from '@/lib/auth';
-import { initDatabase, getUserFacts, createUserFact } from '@/lib/db';
+import { initDatabase, getUserFacts, createUserFact, deleteAllUserFacts } from '@/lib/db';
 import { runPersonalityAgentBatch } from '@/lib/agents/personalityAgent';
 import { FactCategory } from '@/types/user';
 
@@ -64,6 +64,24 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ fact });
   } catch (error) {
     console.error('Error creating user fact:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
+// DELETE /api/facts - Delete all facts for the authenticated user
+export async function DELETE() {
+  try {
+    const session = await getSessionFromCookie();
+    if (!session) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    }
+
+    await initDatabase();
+    await deleteAllUserFacts(session.userId);
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting all user facts:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

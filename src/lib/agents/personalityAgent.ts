@@ -6,11 +6,13 @@ import {
   getChatMessages,
   getUserFacts,
   createUserFactsBatch,
+  deleteAiFactsByCategories,
   getRecentConversationIds,
   getUserWorkouts,
   getUserMealsForDateRange,
   getMacroGoal,
 } from "@/lib/db";
+import { jaccardSimilarity } from "@/lib/textSimilarity";
 import { UserFact, FactCategory } from "@/types/user";
 import { Workout } from "@/types/workout";
 import { Meal, MacroGoal } from "@/types/meal";
@@ -321,12 +323,20 @@ INSTRUCTIONS:
    - A stable pattern, NOT a one-off observation
    - Genuinely NEW — not a rephrasing of an existing fact
 
-4. Only extract conversation-based facts the user explicitly stated or strongly implied.
+4. CRITICAL DEDUPLICATION: Two facts are duplicates if they convey the same underlying information, even with different wording.
+   For example, these pairs are ALL duplicates — do NOT return the second if the first exists:
+   - "Tracks nutrition daily" ↔ "Logs meals essentially every day"
+   - "Trains on average 2.8 sessions per week" ↔ "Averages 2.8 workouts per week"
+   - "Has ankle mobility limitations" ↔ "Has ankle mobility and balance limitations that affect Bulgarian split squats"
+   - "Calorie intake is highly consistent" ↔ "Calorie intake adherence is very high"
+   If an existing fact covers the same topic with similar or more detail, do NOT add a new one.
+
+5. Only extract conversation-based facts the user explicitly stated or strongly implied.
    Behavioral facts should be based on clear patterns in the data (not single data points).
 
-5. If no new facts can be extracted, return an empty facts array.
+6. If no new facts can be extracted, return an empty facts array.
 
-6. Return at most 7 new facts per analysis.`
+7. Return at most 7 new facts per analysis.`
     );
 
     return { extractedFacts: result.facts };
@@ -336,6 +346,10 @@ INSTRUCTIONS:
   }
 }
 
+// Categories where AI facts are data-derived and should be refreshed, not accumulated
+const BEHAVIORAL_CATEGORIES = ["training", "adherence"];
+const SIMILARITY_THRESHOLD = 0.5;
+
 // --- Node: Deduplicate and save to DB ---
 async function deduplicateAndSave(
   state: typeof AgentState.State
@@ -344,29 +358,71 @@ async function deduplicateAndSave(
   if (!state.extractedFacts || state.extractedFacts.length === 0) return {};
 
   try {
-    // Safety-net dedup: check if any existing fact content overlaps
-    // (LLM is already instructed to avoid dupes, this catches edge cases)
-    const existingContents = state.existingFactsList.map((f) =>
-      f.content.toLowerCase()
+    // Split extracted facts into behavioral (refreshable) and stable
+    const behavioralFacts = state.extractedFacts.filter((f) =>
+      BEHAVIORAL_CATEGORIES.includes(f.category)
+    );
+    const stableFacts = state.extractedFacts.filter(
+      (f) => !BEHAVIORAL_CATEGORIES.includes(f.category)
     );
 
-    const newFacts = state.extractedFacts.filter((fact) => {
-      const lower = fact.content.toLowerCase();
-      return !existingContents.some(
-        (existing) => existing.includes(lower) || lower.includes(existing)
-      );
-    });
+    // For behavioral categories: clear old AI facts and replace with fresh ones
+    if (behavioralFacts.length > 0) {
+      await deleteAiFactsByCategories(state.userId, BEHAVIORAL_CATEGORIES);
 
-    if (newFacts.length === 0) return {};
+      // Dedup behavioral facts against each other (in case LLM returns internal dupes)
+      const dedupedBehavioral: typeof behavioralFacts = [];
+      for (const fact of behavioralFacts) {
+        const isDupe = dedupedBehavioral.some(
+          (existing) => jaccardSimilarity(fact.content, existing.content) >= SIMILARITY_THRESHOLD
+        );
+        if (!isDupe) dedupedBehavioral.push(fact);
+      }
 
-    await createUserFactsBatch(
-      state.userId,
-      newFacts.map((f) => ({
-        category: f.category as FactCategory,
-        content: f.content,
-        source: "ai_extracted" as const,
-      }))
-    );
+      if (dedupedBehavioral.length > 0) {
+        await createUserFactsBatch(
+          state.userId,
+          dedupedBehavioral.map((f) => ({
+            category: f.category as FactCategory,
+            content: f.content,
+            source: "ai_extracted" as const,
+          }))
+        );
+      }
+    }
+
+    // For stable categories: dedup against existing facts using Jaccard similarity
+    if (stableFacts.length > 0) {
+      const existingContents = state.existingFactsList
+        .filter((f) => !BEHAVIORAL_CATEGORIES.includes(f.category))
+        .map((f) => f.content);
+
+      const newStableFacts = stableFacts.filter((fact) => {
+        return !existingContents.some(
+          (existing) => jaccardSimilarity(fact.content, existing) >= SIMILARITY_THRESHOLD
+        );
+      });
+
+      // Also dedup new stable facts against each other
+      const dedupedStable: typeof newStableFacts = [];
+      for (const fact of newStableFacts) {
+        const isDupe = dedupedStable.some(
+          (existing) => jaccardSimilarity(fact.content, existing.content) >= SIMILARITY_THRESHOLD
+        );
+        if (!isDupe) dedupedStable.push(fact);
+      }
+
+      if (dedupedStable.length > 0) {
+        await createUserFactsBatch(
+          state.userId,
+          dedupedStable.map((f) => ({
+            category: f.category as FactCategory,
+            content: f.content,
+            source: "ai_extracted" as const,
+          }))
+        );
+      }
+    }
   } catch (err) {
     console.error("Personality agent - deduplicateAndSave error:", err);
     return { error: "Failed to save facts" };
