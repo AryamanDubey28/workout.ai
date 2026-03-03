@@ -1,12 +1,14 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { Workout } from '@/types/workout';
+import { Workout, WorkoutPreset, ForecastDay } from '@/types/workout';
 import { formatCalendarDateKey } from '@/lib/calendarColors';
 import { useWorkoutColors } from '@/hooks/useWorkoutColors';
 import { CalendarGrid } from '@/components/CalendarGrid';
 import { CalendarDayDetail } from '@/components/CalendarDayDetail';
 import { CalendarLegend } from '@/components/CalendarLegend';
+import { ForecastStrip } from '@/components/ForecastStrip';
+import { ForecastDayPicker } from '@/components/ForecastDayPicker';
 import { Button } from '@/components/ui/button';
 import { Palette, Dumbbell } from 'lucide-react';
 
@@ -18,19 +20,27 @@ export function CalendarView({ workouts }: CalendarViewProps) {
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [showLegend, setShowLegend] = useState(false);
-  const [presetNames, setPresetNames] = useState<string[]>([]);
+  const [presets, setPresets] = useState<WorkoutPreset[]>([]);
+  const [forecast, setForecast] = useState<ForecastDay[]>([]);
+  const [forecastLoading, setForecastLoading] = useState(true);
+  const [selectedForecastDay, setSelectedForecastDay] = useState<ForecastDay | null>(null);
 
-  // Fetch presets to get canonical workout types for colour matching
+  const presetNames = useMemo(
+    () => presets.map((p) => p.name),
+    [presets],
+  );
+
+  // Fetch presets
   useEffect(() => {
     async function loadPresets() {
       try {
         const res = await fetch('/api/presets');
         if (res.ok) {
           const data = await res.json();
-          const names = (data.presets || [])
-            .sort((a: any, b: any) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
-            .map((p: any) => p.name as string);
-          setPresetNames(names);
+          const sorted = (data.presets || []).sort(
+            (a: any, b: any) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0),
+          );
+          setPresets(sorted);
         }
       } catch (err) {
         console.error('Failed to load presets for calendar:', err);
@@ -38,6 +48,25 @@ export function CalendarView({ workouts }: CalendarViewProps) {
     }
     loadPresets();
   }, []);
+
+  // Fetch forecast
+  const loadForecast = useCallback(async () => {
+    try {
+      const res = await fetch('/api/forecast');
+      if (res.ok) {
+        const data = await res.json();
+        setForecast(data.forecast || []);
+      }
+    } catch (err) {
+      console.error('Failed to load forecast:', err);
+    } finally {
+      setForecastLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadForecast();
+  }, [loadForecast]);
 
   const { getColor, setColorOverride, removeColorOverride, categories, overrides } =
     useWorkoutColors(workouts, presetNames);
@@ -119,6 +148,41 @@ export function CalendarView({ workouts }: CalendarViewProps) {
     return workoutsByDate.get(formatCalendarDateKey(selectedDate)) || [];
   }, [selectedDate, workoutsByDate]);
 
+  // Forecast handlers
+  const handleForecastDayTap = useCallback((day: ForecastDay) => {
+    setSelectedForecastDay(day);
+  }, []);
+
+  const handleForecastAssign = useCallback(async (date: string, presetId: string | null) => {
+    try {
+      const res = await fetch('/api/forecast', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date, presetId }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setForecast(data.forecast || []);
+      }
+    } catch (err) {
+      console.error('Failed to update forecast:', err);
+    }
+  }, []);
+
+  const handleForecastReset = useCallback(async (date: string) => {
+    try {
+      const res = await fetch(`/api/forecast?date=${date}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setForecast(data.forecast || []);
+      }
+    } catch (err) {
+      console.error('Failed to reset forecast:', err);
+    }
+  }, []);
+
   return (
     <div className="w-full max-w-lg mx-auto animate-fade-in-blur">
       {/* Header */}
@@ -141,6 +205,16 @@ export function CalendarView({ workouts }: CalendarViewProps) {
           <Palette className="h-5 w-5" />
         </Button>
       </div>
+
+      {/* Forecast Strip */}
+      {(presets.length > 0 || forecastLoading) && (
+        <ForecastStrip
+          forecast={forecast}
+          getColor={getColor}
+          onDayTap={handleForecastDayTap}
+          isLoading={forecastLoading}
+        />
+      )}
 
       {/* Calendar Grid */}
       <CalendarGrid
@@ -175,6 +249,17 @@ export function CalendarView({ workouts }: CalendarViewProps) {
         getColor={getColor}
         open={selectedDate !== null}
         onClose={() => setSelectedDate(null)}
+      />
+
+      {/* Forecast Day Picker Sheet */}
+      <ForecastDayPicker
+        day={selectedForecastDay}
+        presets={presets}
+        getColor={getColor}
+        open={selectedForecastDay !== null}
+        onClose={() => setSelectedForecastDay(null)}
+        onSelect={handleForecastAssign}
+        onReset={handleForecastReset}
       />
 
       {/* Legend Sheet */}

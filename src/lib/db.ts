@@ -1,6 +1,6 @@
 import { sql } from '@vercel/postgres';
 import { User, CreateUserData, UserFact, FactCategory, FactSource, AiSoul } from '@/types/user';
-import { Workout, WorkoutPreset, SplitReminder, Exercise, WorkoutType, RunData } from '@/types/workout';
+import { Workout, WorkoutPreset, SplitReminder, ForecastDay, Exercise, WorkoutType, RunData } from '@/types/workout';
 import { Meal, MealCategory, Macros, MacroGoal, SavedMeal, FoodSuggestion, SuggestionStatus } from '@/types/meal';
 import bcrypt from 'bcryptjs';
 
@@ -279,6 +279,23 @@ export async function initDatabase() {
 
     await sql`
       CREATE INDEX IF NOT EXISTS workout_presets_sort_order_idx ON workout_presets(user_id, sort_order);
+    `;
+
+    // Create workout_forecast_overrides table
+    await sql`
+      CREATE TABLE IF NOT EXISTS workout_forecast_overrides (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        forecast_date DATE NOT NULL,
+        preset_id UUID REFERENCES workout_presets(id) ON DELETE SET NULL,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(user_id, forecast_date)
+      );
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS forecast_overrides_user_date_idx ON workout_forecast_overrides(user_id, forecast_date);
     `;
 
     // Create chat_conversations table
@@ -977,6 +994,145 @@ export async function getNextSplitPreset(userId: string): Promise<SplitReminder>
   } catch (error) {
     console.error('Error getting next split preset:', error);
     return { nextPreset: null, completedToday: false };
+  }
+}
+
+// ===== FORECAST FUNCTIONS =====
+
+export async function getWorkoutForecast(userId: string, days: number = 7): Promise<ForecastDay[]> {
+  try {
+    const presets = await getUserPresets(userId);
+    const today = new Date();
+
+    // If no presets, return all rest days
+    if (presets.length === 0) {
+      const result: ForecastDay[] = [];
+      for (let i = 0; i < days; i++) {
+        const d = new Date(today);
+        d.setDate(d.getDate() + i);
+        result.push({
+          date: toDateOnlyString(d),
+          presetId: null,
+          presetName: null,
+          presetType: null,
+          isOverride: false,
+        });
+      }
+      return result;
+    }
+
+    // Determine starting cycle index from split rotation
+    const splitReminder = await getNextSplitPreset(userId);
+    let cycleIndex = 0;
+    if (splitReminder.nextPreset) {
+      const idx = presets.findIndex(p => p.id === splitReminder.nextPreset!.id);
+      if (idx !== -1) cycleIndex = idx;
+    }
+
+    // Fetch overrides for the date range
+    const endDate = new Date(today);
+    endDate.setDate(endDate.getDate() + days - 1);
+    const todayStr = toDateOnlyString(today);
+    const endStr = toDateOnlyString(endDate);
+
+    const overridesResult = await sql`
+      SELECT fo.forecast_date, fo.preset_id, wp.name as preset_name, wp.type as preset_type
+      FROM workout_forecast_overrides fo
+      LEFT JOIN workout_presets wp ON fo.preset_id = wp.id
+      WHERE fo.user_id = ${userId}
+        AND fo.forecast_date >= ${todayStr}::date
+        AND fo.forecast_date <= ${endStr}::date;
+    `;
+
+    const overrideMap = new Map<string, { presetId: string | null; presetName: string | null; presetType: string | null }>();
+    for (const row of overridesResult.rows) {
+      const dateKey = toDateOnlyString(new Date(row.forecast_date));
+      overrideMap.set(dateKey, {
+        presetId: row.preset_id,
+        presetName: row.preset_name,
+        presetType: row.preset_type,
+      });
+    }
+
+    // Build the forecast array
+    const forecast: ForecastDay[] = [];
+    for (let i = 0; i < days; i++) {
+      const d = new Date(today);
+      d.setDate(d.getDate() + i);
+      const dateStr = toDateOnlyString(d);
+
+      const override = overrideMap.get(dateStr);
+      if (override !== undefined) {
+        // User override — does NOT advance the cycle
+        forecast.push({
+          date: dateStr,
+          presetId: override.presetId,
+          presetName: override.presetName,
+          presetType: (override.presetType as WorkoutType) || null,
+          isOverride: true,
+        });
+      } else {
+        // Use the next preset in cycle
+        const preset = presets[cycleIndex % presets.length];
+        forecast.push({
+          date: dateStr,
+          presetId: preset.id,
+          presetName: preset.name,
+          presetType: (preset.type as WorkoutType) || 'strength',
+          isOverride: false,
+        });
+        cycleIndex++;
+      }
+    }
+
+    return forecast;
+  } catch (error) {
+    console.error('Error computing workout forecast:', error);
+    return [];
+  }
+}
+
+export async function upsertForecastOverride(
+  userId: string,
+  date: string,
+  presetId: string | null
+): Promise<boolean> {
+  try {
+    await sql`
+      INSERT INTO workout_forecast_overrides (user_id, forecast_date, preset_id)
+      VALUES (${userId}, ${date}::date, ${presetId})
+      ON CONFLICT (user_id, forecast_date)
+      DO UPDATE SET preset_id = ${presetId}, updated_at = NOW();
+    `;
+    return true;
+  } catch (error) {
+    console.error('Error upserting forecast override:', error);
+    return false;
+  }
+}
+
+export async function deleteForecastOverride(userId: string, date: string): Promise<boolean> {
+  try {
+    await sql`
+      DELETE FROM workout_forecast_overrides
+      WHERE user_id = ${userId} AND forecast_date = ${date}::date;
+    `;
+    return true;
+  } catch (error) {
+    console.error('Error deleting forecast override:', error);
+    return false;
+  }
+}
+
+export async function cleanupPastForecastOverrides(userId: string): Promise<void> {
+  try {
+    await sql`
+      DELETE FROM workout_forecast_overrides
+      WHERE user_id = ${userId}
+        AND forecast_date < CURRENT_DATE;
+    `;
+  } catch (error) {
+    console.error('Error cleaning up past forecast overrides:', error);
   }
 }
 
