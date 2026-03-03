@@ -66,7 +66,7 @@ export function WorkoutForm({ workout, initialPreset, onSave, onCancel }: Workou
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 400, tolerance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 600, tolerance: 10 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
