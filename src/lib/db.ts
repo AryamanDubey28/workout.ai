@@ -1029,6 +1029,12 @@ export async function getWorkoutForecast(userId: string, days: number = 7): Prom
       if (idx !== -1) cycleIndex = idx;
     }
 
+    // If today's workout is already done, back up the cycle so today
+    // shows the completed preset and tomorrow starts with nextPreset
+    if (splitReminder.completedToday) {
+      cycleIndex = (cycleIndex - 1 + presets.length) % presets.length;
+    }
+
     // Fetch overrides for the date range
     const endDate = new Date(today);
     endDate.setDate(endDate.getDate() + days - 1);
