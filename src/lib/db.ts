@@ -745,6 +745,23 @@ export async function createWorkout(userId: string, workout: Workout): Promise<W
 }
 
 // Get all workouts for a user
+export async function getUserWorkout(userId: string, workoutId: string): Promise<Workout | null> {
+  try {
+    const result = await sql`
+      SELECT id, name, note, date, type, run_data, exercises, created_at, updated_at
+      FROM workouts
+      WHERE id = ${workoutId} AND user_id = ${userId}
+      LIMIT 1;
+    `;
+
+    if (result.rowCount === 0) return null;
+    return mapWorkoutRow(result.rows[0]);
+  } catch (error) {
+    console.error('Error getting workout:', error);
+    return null;
+  }
+}
+
 export async function getUserWorkouts(userId: string): Promise<Workout[]> {
   try {
     const result = await sql`

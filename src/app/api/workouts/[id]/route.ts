@@ -1,7 +1,53 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSessionFromCookie } from '@/lib/auth';
-import { deleteWorkout, initDatabase, updateWorkout } from '@/lib/db';
+import { deleteWorkout, getUserWorkout, initDatabase, updateWorkout } from '@/lib/db';
 import { Workout } from '@/types/workout';
+
+// GET /api/workouts/[id] - Get a specific workout
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const session = await getSessionFromCookie();
+
+    if (!session) {
+      return NextResponse.json(
+        { error: 'Not authenticated' },
+        { status: 401 }
+      );
+    }
+
+    await initDatabase();
+
+    const { id: workoutId } = await params;
+
+    if (!workoutId) {
+      return NextResponse.json(
+        { error: 'Workout ID is required' },
+        { status: 400 }
+      );
+    }
+
+    const workout = await getUserWorkout(session.userId, workoutId);
+
+    if (!workout) {
+      return NextResponse.json(
+        { error: 'Workout not found' },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({ workout });
+
+  } catch (error) {
+    console.error('Error getting workout:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
 
 // DELETE /api/workouts/[id] - Delete a specific workout
 export async function DELETE(
