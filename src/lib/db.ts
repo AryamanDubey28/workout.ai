@@ -2,6 +2,7 @@ import { sql } from '@vercel/postgres';
 import { User, CreateUserData, UserFact, FactCategory, FactSource, AiSoul } from '@/types/user';
 import { Workout, WorkoutPreset, SplitReminder, ForecastDay, Exercise, WorkoutType, RunData } from '@/types/workout';
 import { Meal, MealCategory, Macros, MacroGoal, SavedMeal, FoodSuggestion, SuggestionStatus } from '@/types/meal';
+import { DailyHealthMetrics } from '@/types/health';
 import bcrypt from 'bcryptjs';
 
 function parseDateOnly(value: string): Date | null {
@@ -154,7 +155,7 @@ export async function initDatabase() {
     await sql`
       CREATE INDEX IF NOT EXISTS exercise_patterns_user_id_idx ON exercise_patterns(user_id);
     `;
-    
+
     await sql`
       CREATE INDEX IF NOT EXISTS exercise_patterns_canonical_name_idx ON exercise_patterns(canonical_name);
     `;
@@ -384,6 +385,22 @@ export async function initDatabase() {
       );
     `;
 
+    // Create daily_health_metrics table
+    await sql`
+      CREATE TABLE IF NOT EXISTS daily_health_metrics (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        date DATE NOT NULL,
+        steps INTEGER,
+        active_calories INTEGER,
+        resting_heart_rate INTEGER,
+        sleep_hours DECIMAL(4,1),
+        vo2_max DECIMAL(4,1),
+        updated_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(user_id, date)
+      );
+    `;
+
     console.log('Database initialized successfully');
   } catch (error) {
     console.error('Error initializing database:', error);
@@ -401,13 +418,13 @@ export async function createUser(userData: CreateUserData): Promise<User | null>
     }
 
     const computedAge = calculateAgeFromDateOfBirth(parsedDob);
-    
+
     const result = await sql`
       INSERT INTO users (name, email, age, date_of_birth, weight, password)
       VALUES (${userData.name}, ${userData.email}, ${computedAge}, ${toDateOnlyString(parsedDob)}, ${userData.weight}, ${hashedPassword})
       RETURNING id, name, email, age, date_of_birth::text AS date_of_birth, weight, created_at;
     `;
-    
+
     return mapUserRow(result.rows[0]);
   } catch (error) {
     console.error('Error creating user:', error);
@@ -423,7 +440,7 @@ export async function getUserByEmail(email: string): Promise<User | null> {
       FROM users
       WHERE email = ${email};
     `;
-    
+
     if (result.rows.length === 0) return null;
     return mapUserRow(result.rows[0]);
   } catch (error) {
@@ -440,11 +457,50 @@ export async function getUserById(id: string): Promise<User | null> {
       FROM users
       WHERE id = ${id};
     `;
-    
+
     if (result.rows.length === 0) return null;
     return mapUserRow(result.rows[0]);
   } catch (error) {
     console.error('Error getting user by ID:', error);
+    return null;
+  }
+}
+
+// Update user profile fields (weight, dateOfBirth)
+export async function updateUser(
+  userId: string,
+  updates: { weight?: number; dateOfBirth?: string }
+): Promise<User | null> {
+  try {
+    const setClauses: string[] = [];
+    const values: any[] = [];
+    let paramIndex = 1;
+
+    if (updates.weight !== undefined) {
+      setClauses.push(`weight = $${paramIndex++}`);
+      values.push(updates.weight);
+    }
+
+    if (updates.dateOfBirth !== undefined) {
+      const parsed = parseDateOnly(updates.dateOfBirth);
+      if (!parsed) return null;
+      const age = calculateAgeFromDateOfBirth(parsed);
+      setClauses.push(`date_of_birth = $${paramIndex++}`);
+      values.push(toDateOnlyString(parsed));
+      setClauses.push(`age = $${paramIndex++}`);
+      values.push(age);
+    }
+
+    if (setClauses.length === 0) return null;
+
+    values.push(userId);
+    const query = `UPDATE users SET ${setClauses.join(', ')} WHERE id = $${paramIndex} RETURNING id, name, email, age, date_of_birth::text AS date_of_birth, weight, created_at`;
+    const result = await sql.query(query, values);
+
+    if (result.rows.length === 0) return null;
+    return mapUserRow(result.rows[0]);
+  } catch (error) {
+    console.error('Error updating user:', error);
     return null;
   }
 }
@@ -454,27 +510,27 @@ export async function verifyUser(email: string, password: string): Promise<User 
   try {
     console.log('DB: Looking up user by email:', email);
     const user = await getUserByEmail(email);
-    
+
     if (!user) {
       console.log('DB: User not found for email:', email);
       return null;
     }
-    
+
     if (!user.password) {
       console.log('DB: User found but no password hash for email:', email);
       return null;
     }
-    
+
     console.log('DB: User found, verifying password for email:', email);
     const isValidPassword = await bcrypt.compare(password, user.password);
-    
+
     if (!isValidPassword) {
       console.log('DB: Invalid password for email:', email);
       return null;
     }
-    
+
     console.log('DB: Password verification successful for email:', email);
-    
+
     // Return user without password
     const { password: _, ...userWithoutPassword } = user;
     return userWithoutPassword as User;
@@ -490,7 +546,7 @@ export async function emailExists(email: string): Promise<boolean> {
     const result = await sql`
       SELECT id FROM users WHERE email = ${email};
     `;
-    
+
     return result.rows.length > 0;
   } catch (error) {
     console.error('Error checking email existence:', error);
@@ -502,8 +558,8 @@ export async function emailExists(email: string): Promise<boolean> {
 
 // Create or update exercise pattern
 export async function createOrUpdateExercisePattern(
-  userId: string, 
-  exerciseName: string, 
+  userId: string,
+  exerciseName: string,
   exerciseData: {
     weight?: string;
     sets?: number;
@@ -530,7 +586,7 @@ export async function createOrUpdateExercisePattern(
       // Update existing pattern
       const pattern = existing.rows[0];
       const variations = Array.isArray(pattern.variations) ? pattern.variations : [];
-      
+
       // Add new variation if not already present
       if (!variations.some((v: string) => v.toLowerCase() === exerciseName.toLowerCase())) {
         variations.push(exerciseName);
@@ -630,7 +686,7 @@ export async function getExerciseSuggestions(userId: string, query: string, limi
     const userSuggestions = userPatternsResult.rows.map(row => {
       const variations = Array.isArray(row.variations) ? row.variations : [row.canonical_name];
       const queryLower = query.toLowerCase();
-      
+
       // Find the best matching variation
       let bestMatch = row.canonical_name;
       for (const variation of variations) {
@@ -1957,5 +2013,88 @@ export async function deleteAiSoul(userId: string): Promise<boolean> {
   } catch (error) {
     console.error('Error deleting AI soul:', error);
     return false;
+  }
+}
+
+// ===== DAILY HEALTH METRICS FUNCTIONS =====
+
+function mapHealthMetricsRow(row: any): DailyHealthMetrics {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    date: toDateOnlyString(new Date(row.date)),
+    steps: row.steps ?? undefined,
+    activeCalories: row.active_calories ?? undefined,
+    restingHeartRate: row.resting_heart_rate ?? undefined,
+    sleepHours: row.sleep_hours ? Number(row.sleep_hours) : undefined,
+    vo2Max: row.vo2_max ? Number(row.vo2_max) : undefined,
+    updatedAt: new Date(row.updated_at),
+  };
+}
+
+export async function upsertDailyHealthMetrics(
+  userId: string,
+  date: string,
+  metrics: {
+    steps?: number;
+    activeCalories?: number;
+    restingHeartRate?: number;
+    sleepHours?: number;
+    vo2Max?: number;
+  }
+): Promise<DailyHealthMetrics | null> {
+  try {
+    const parsedDate = parseDateOnly(date);
+    if (!parsedDate) throw new Error('Invalid date format, expected YYYY-MM-DD');
+    const dateStr = toDateOnlyString(parsedDate);
+
+    const result = await sql`
+      INSERT INTO daily_health_metrics (
+        user_id, date, steps, active_calories, resting_heart_rate, sleep_hours, vo2_max, updated_at
+      ) VALUES (
+        ${userId}, ${dateStr}, ${metrics.steps ?? null}, ${metrics.activeCalories ?? null}, 
+        ${metrics.restingHeartRate ?? null}, ${metrics.sleepHours ?? null}, ${metrics.vo2Max ?? null}, NOW()
+      )
+      ON CONFLICT (user_id, date) DO UPDATE SET
+        steps = COALESCE(EXCLUDED.steps, daily_health_metrics.steps),
+        active_calories = COALESCE(EXCLUDED.active_calories, daily_health_metrics.active_calories),
+        resting_heart_rate = COALESCE(EXCLUDED.resting_heart_rate, daily_health_metrics.resting_heart_rate),
+        sleep_hours = COALESCE(EXCLUDED.sleep_hours, daily_health_metrics.sleep_hours),
+        vo2_max = COALESCE(EXCLUDED.vo2_max, daily_health_metrics.vo2_max),
+        updated_at = NOW()
+      RETURNING *;
+    `;
+
+    return mapHealthMetricsRow(result.rows[0]);
+  } catch (error) {
+    console.error('Error upserting health metrics:', error);
+    return null;
+  }
+}
+
+export async function getDailyHealthMetrics(
+  userId: string,
+  startDate: string,
+  endDate: string
+): Promise<DailyHealthMetrics[]> {
+  try {
+    const start = parseDateOnly(startDate);
+    const end = parseDateOnly(endDate);
+
+    if (!start || !end) throw new Error('Invalid date format, expected YYYY-MM-DD');
+
+    const result = await sql`
+      SELECT *
+      FROM daily_health_metrics
+      WHERE user_id = ${userId}
+      AND date >= ${toDateOnlyString(start)}
+      AND date <= ${toDateOnlyString(end)}
+      ORDER BY date ASC;
+    `;
+
+    return result.rows.map(mapHealthMetricsRow);
+  } catch (error) {
+    console.error('Error getting health metrics:', error);
+    return [];
   }
 }

@@ -112,7 +112,7 @@ async function analyze(state: typeof AgentState.State): Promise<Partial<typeof A
 
   try {
     const llm = new ChatOpenAI({
-      model: "gpt-5.2",
+      model: "gpt-5.4",
       temperature: 0.3,
       openAIApiKey: process.env.OPENAI_API_KEY,
     });

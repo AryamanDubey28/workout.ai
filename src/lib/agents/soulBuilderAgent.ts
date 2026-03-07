@@ -106,7 +106,7 @@ async function buildSoul(
 ): Promise<Partial<typeof AgentState.State>> {
   try {
     const llm = new ChatOpenAI({
-      model: "gpt-5.2",
+      model: "gpt-5.4",
       temperature: 0.7,
       openAIApiKey: process.env.OPENAI_API_KEY,
     });

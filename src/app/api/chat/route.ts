@@ -14,6 +14,7 @@ import {
   touchConversation,
   getUserFacts,
   getAiSoul,
+  getDailyHealthMetrics,
 } from '@/lib/db';
 import OpenAI from 'openai';
 import { runPersonalityAgent } from '@/lib/agents/personalityAgent';
@@ -348,6 +349,24 @@ function formatUserProfileForContext(user: any, goal: any): string {
   return `Age: ${age}. Weight: ${weight}. Height: ${height}. Sex: ${sex}. Activity level: ${activityLevel}.`;
 }
 
+function formatHealthMetricsForContext(metrics: any[]): string {
+  if (metrics.length === 0) return 'No recent daily health metrics available.';
+
+  const lines = metrics.map((m) => {
+    const date = new Date(m.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const parts = [];
+    if (m.sleepHours) parts.push(`${m.sleepHours}h sleep`);
+    if (m.steps) parts.push(`${m.steps.toLocaleString()} steps`);
+    if (m.activeCalories) parts.push(`${m.activeCalories} active cal`);
+    if (m.restingHeartRate) parts.push(`${m.restingHeartRate} bpm RHR`);
+    if (m.vo2Max) parts.push(`${m.vo2Max} VO2Max`);
+
+    return `   - ${date}: ${parts.length > 0 ? parts.join(', ') : 'no data'}`;
+  });
+
+  return `Daily Health Metrics (Past 7 Days):\n${lines.join('\n')}`;
+}
+
 function logOpenAIError(context: string, error: any, meta?: Record<string, any>) {
   const err = error ?? {};
   const details = {
@@ -516,7 +535,11 @@ export async function POST(request: NextRequest) {
     twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
     const twoWeeksAgoKey = twoWeeksAgo.toISOString().split('T')[0];
 
-    const [dbMessages, userProfile, workouts, todayMeals, mealHistory, macroGoal, userFacts, aiSoul] = await Promise.all([
+    const oneWeekAgo = new Date(now);
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+    const oneWeekAgoKey = oneWeekAgo.toISOString().split('T')[0];
+
+    const [dbMessages, userProfile, workouts, todayMeals, mealHistory, macroGoal, userFacts, aiSoul, healthMetrics] = await Promise.all([
       getChatMessages(conversationId, 50),
       getUserById(session.userId),
       getUserWorkouts(session.userId),
@@ -525,6 +548,7 @@ export async function POST(request: NextRequest) {
       getMacroGoal(session.userId),
       getUserFacts(session.userId),
       getAiSoul(session.userId),
+      getDailyHealthMetrics(session.userId, oneWeekAgoKey, todayKey),
     ]);
 
     // Auto-generate title from first user message (or defer for generic messages)
@@ -545,6 +569,7 @@ export async function POST(request: NextRequest) {
     const mealHistoryContext = formatMealHistoryForContext(mealHistory, todayKey);
     const goalContext = formatGoalForContext(macroGoal);
     const factsContext = formatUserFactsForContext(userFacts);
+    const healthContext = formatHealthMetricsForContext(healthMetrics);
 
     // Build chat history — inject image into the last user message if present
     const chatHistory: Array<{ role: 'user' | 'assistant'; content: any }> = dbMessages.map((m) => ({
@@ -587,6 +612,8 @@ Unit rules: bodyweight in the user profile is stored in pounds (lb). Workout exe
 User profile:
 ${userProfileContext}
 ${factsContext ? `\nPersonal context about this user:\n${factsContext}\nUse these facts to personalize your responses — reference injuries, dietary needs, goals, and preferences naturally.\n` : ''}${userFacts.length < 3 ? `\nYou don't know much about this user yet. When it feels natural (not forced), ask a friendly question to learn about them — their fitness background, injuries, dietary preferences, goals, or lifestyle. Don't ask more than one discovery question per message, and only when contextually appropriate.\n` : ''}
+${healthContext}
+
 Here is their complete workout history (progression summary first, then recent workouts in detail, then older workouts in compact format):
 ${workoutContext}
 
@@ -600,7 +627,7 @@ ${goalContext}
 ${defaultTone}
 Formatting rules: You may use Markdown for structure. Use **bold** for emphasis, headings (##, ###) for sections, bullet points and numbered lists where helpful. Keep formatting clean and not excessive.`;
 
-    const model = 'gpt-5.2';
+    const model = 'gpt-5.4';
     logMeta = {
       ...logMeta,
       model,

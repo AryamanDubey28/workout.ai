@@ -92,7 +92,7 @@ export async function POST(request: NextRequest) {
     userContent.push({ type: 'text', text: textPrompt });
 
     const response = await openai.chat.completions.create({
-      model: 'gpt-5.2',
+      model: 'gpt-5.4',
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
         { role: 'user', content: userContent },

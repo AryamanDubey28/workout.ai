@@ -11,6 +11,7 @@ import {
   getUserWorkouts,
   getUserMealsForDateRange,
   getMacroGoal,
+  getDailyHealthMetrics,
 } from "@/lib/db";
 import { jaccardSimilarity } from "@/lib/textSimilarity";
 import { UserFact, FactCategory } from "@/types/user";
@@ -216,6 +217,23 @@ function summarizeMealAdherence(
   return lines.join("\n");
 }
 
+function summarizeHealthPatterns(metrics: any[]): string {
+  if (metrics.length === 0) return "No daily health metrics synced.";
+
+  let totalSleep = 0, sleepDays = 0;
+  let totalSteps = 0, stepDays = 0;
+
+  for (const m of metrics) {
+    if (m.sleepHours) { totalSleep += Number(m.sleepHours); sleepDays++; }
+    if (m.steps) { totalSteps += Number(m.steps); stepDays++; }
+  }
+
+  const avgSleep = sleepDays > 0 ? (totalSleep / sleepDays).toFixed(1) : "N/A";
+  const avgSteps = stepDays > 0 ? Math.round(totalSteps / stepDays).toLocaleString() : "N/A";
+
+  return `Health Metrics (Past 14 Days):\n- Recorded Days: ${metrics.length}\n- Average Sleep: ${avgSleep} hours/night\n- Average Daily Steps: ${avgSteps}`;
+}
+
 // --- Node: Fetch context from DB ---
 async function fetchContext(
   state: typeof AgentState.State
@@ -229,12 +247,13 @@ async function fetchContext(
     const twoWeeksAgoKey = twoWeeksAgo.toISOString().split("T")[0];
     const todayKey = now.toISOString().split("T")[0];
 
-    const [messages, existingFacts, workouts, mealHistory, macroGoal] = await Promise.all([
+    const [messages, existingFacts, workouts, mealHistory, macroGoal, healthMetrics] = await Promise.all([
       getChatMessages(state.conversationId, 50),
       getUserFacts(state.userId),
       getUserWorkouts(state.userId),
       getUserMealsForDateRange(state.userId, twoWeeksAgoKey, todayKey),
       getMacroGoal(state.userId),
+      getDailyHealthMetrics(state.userId, twoWeeksAgoKey, todayKey),
     ]);
 
     // Only proceed if there are enough user messages to analyze
@@ -257,7 +276,8 @@ async function fetchContext(
     // Build behavioral context
     const workoutSummary = summarizeWorkoutPatterns(workouts);
     const mealSummary = summarizeMealAdherence(mealHistory, macroGoal);
-    const behavioralContext = `WORKOUT PATTERNS:\n${workoutSummary}\n\nMEAL & MACRO ADHERENCE:\n${mealSummary}`;
+    const healthSummary = summarizeHealthPatterns(healthMetrics);
+    const behavioralContext = `WORKOUT PATTERNS:\n${workoutSummary}\n\nMEAL & MACRO ADHERENCE:\n${mealSummary}\n\nLIFESTYLE & HEALTH:\n${healthSummary}`;
 
     return {
       chatMessages,
@@ -279,7 +299,7 @@ async function extractFacts(
 
   try {
     const llm = new ChatOpenAI({
-      model: "gpt-5.2",
+      model: "gpt-5.4",
       temperature: 0.3,
       openAIApiKey: process.env.OPENAI_API_KEY,
     });
@@ -308,7 +328,8 @@ INSTRUCTIONS:
      Examples: "Trains 5x per week consistently", "Mostly trains on weekdays", "Prefers push/pull/legs split", "Takes weekends off", "Training frequency dropped recently"
    - Macro adherence, diet consistency, tracking habits, weekend vs weekday patterns (category: adherence)
      Examples: "Consistently hits protein targets", "Struggles with diet on weekends", "Tracks meals daily", "Tends to under-eat on rest days", "Calorie intake often exceeds goal by 200+"
-   - Lifestyle factors: job type, sleep habits, stress, family situation (category: lifestyle)
+   - Lifestyle factors from synced metrics: sleep duration patterns, daily activity levels outside workouts (category: lifestyle)
+     Examples: "Consistently gets less than 6 hours of sleep", "Highly active lifestyle outside of gym with 15k+ daily steps", "Sedentary lifestyle with low step count on rest days", "Sleeps more on weekends"
    - Personality traits, mindset, emotional relationship with fitness (category: personality)
 
 2. For behavioral facts (training, adherence), analyze the DATA objectively:
