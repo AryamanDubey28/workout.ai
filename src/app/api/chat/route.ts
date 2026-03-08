@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSessionFromCookie } from '@/lib/auth';
+
+export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
+
 import {
   initDatabase,
   getUserById,
@@ -681,7 +685,10 @@ Formatting rules: You may use Markdown for structure. Use **bold** for emphasis,
     return new Response(readableStream, {
       headers: {
         'Content-Type': 'text/plain; charset=utf-8',
-        'Cache-Control': 'no-cache',
+        'Cache-Control': 'no-cache, no-transform',
+        'Connection': 'keep-alive',
+        'Content-Encoding': 'none',
+        'X-Accel-Buffering': 'no',
       },
     });
   } catch (error: any) {
