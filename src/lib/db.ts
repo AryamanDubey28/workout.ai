@@ -396,10 +396,14 @@ export async function initDatabase() {
         resting_heart_rate INTEGER,
         sleep_hours DECIMAL(4,1),
         vo2_max DECIMAL(4,1),
+        weight DECIMAL(5,2),
         updated_at TIMESTAMP DEFAULT NOW(),
         UNIQUE(user_id, date)
       );
     `;
+
+    // Add weight column if missing (migration for existing databases)
+    await sql`ALTER TABLE daily_health_metrics ADD COLUMN IF NOT EXISTS weight DECIMAL(5,2);`;
 
     console.log('Database initialized successfully');
   } catch (error) {
@@ -2028,6 +2032,7 @@ function mapHealthMetricsRow(row: any): DailyHealthMetrics {
     restingHeartRate: row.resting_heart_rate ?? undefined,
     sleepHours: row.sleep_hours ? Number(row.sleep_hours) : undefined,
     vo2Max: row.vo2_max ? Number(row.vo2_max) : undefined,
+    weight: row.weight ? Number(row.weight) : undefined,
     updatedAt: new Date(row.updated_at),
   };
 }
@@ -2041,6 +2046,7 @@ export async function upsertDailyHealthMetrics(
     restingHeartRate?: number;
     sleepHours?: number;
     vo2Max?: number;
+    weight?: number;
   }
 ): Promise<DailyHealthMetrics | null> {
   try {
@@ -2050,10 +2056,11 @@ export async function upsertDailyHealthMetrics(
 
     const result = await sql`
       INSERT INTO daily_health_metrics (
-        user_id, date, steps, active_calories, resting_heart_rate, sleep_hours, vo2_max, updated_at
+        user_id, date, steps, active_calories, resting_heart_rate, sleep_hours, vo2_max, weight, updated_at
       ) VALUES (
-        ${userId}, ${dateStr}, ${metrics.steps ?? null}, ${metrics.activeCalories ?? null}, 
-        ${metrics.restingHeartRate ?? null}, ${metrics.sleepHours ?? null}, ${metrics.vo2Max ?? null}, NOW()
+        ${userId}, ${dateStr}, ${metrics.steps ?? null}, ${metrics.activeCalories ?? null},
+        ${metrics.restingHeartRate ?? null}, ${metrics.sleepHours ?? null}, ${metrics.vo2Max ?? null},
+        ${metrics.weight ?? null}, NOW()
       )
       ON CONFLICT (user_id, date) DO UPDATE SET
         steps = COALESCE(EXCLUDED.steps, daily_health_metrics.steps),
@@ -2061,6 +2068,7 @@ export async function upsertDailyHealthMetrics(
         resting_heart_rate = COALESCE(EXCLUDED.resting_heart_rate, daily_health_metrics.resting_heart_rate),
         sleep_hours = COALESCE(EXCLUDED.sleep_hours, daily_health_metrics.sleep_hours),
         vo2_max = COALESCE(EXCLUDED.vo2_max, daily_health_metrics.vo2_max),
+        weight = COALESCE(EXCLUDED.weight, daily_health_metrics.weight),
         updated_at = NOW()
       RETURNING *;
     `;
@@ -2096,5 +2104,116 @@ export async function getDailyHealthMetrics(
   } catch (error) {
     console.error('Error getting health metrics:', error);
     return [];
+  }
+}
+
+export interface HealthSummaryMetric {
+  avg: number;
+  high: number;
+  low: number;
+}
+
+export interface HealthSummary {
+  steps: HealthSummaryMetric | null;
+  activeCalories: HealthSummaryMetric | null;
+  sleepHours: HealthSummaryMetric | null;
+  weight: HealthSummaryMetric | null;
+  restingHeartRate: HealthSummaryMetric | null;
+}
+
+export async function getHealthSummary(
+  userId: string,
+  startDate: string,
+  endDate: string
+): Promise<HealthSummary> {
+  try {
+    const start = parseDateOnly(startDate);
+    const end = parseDateOnly(endDate);
+    if (!start || !end) throw new Error('Invalid date format, expected YYYY-MM-DD');
+
+    const result = await sql`
+      SELECT
+        ROUND(AVG(steps))::int AS steps_avg,
+        MAX(steps)::int AS steps_high,
+        MIN(steps)::int AS steps_low,
+        ROUND(AVG(active_calories))::int AS active_calories_avg,
+        MAX(active_calories)::int AS active_calories_high,
+        MIN(active_calories)::int AS active_calories_low,
+        ROUND(AVG(sleep_hours)::numeric, 1) AS sleep_hours_avg,
+        MAX(sleep_hours) AS sleep_hours_high,
+        MIN(sleep_hours) AS sleep_hours_low,
+        ROUND(AVG(weight)::numeric, 1) AS weight_avg,
+        MAX(weight) AS weight_high,
+        MIN(weight) AS weight_low,
+        ROUND(AVG(resting_heart_rate))::int AS rhr_avg,
+        MAX(resting_heart_rate)::int AS rhr_high,
+        MIN(resting_heart_rate)::int AS rhr_low
+      FROM daily_health_metrics
+      WHERE user_id = ${userId}
+      AND date >= ${toDateOnlyString(start)}
+      AND date <= ${toDateOnlyString(end)}
+      AND (steps IS NOT NULL OR active_calories IS NOT NULL OR sleep_hours IS NOT NULL OR weight IS NOT NULL OR resting_heart_rate IS NOT NULL);
+    `;
+
+    const row = result.rows[0];
+    if (!row) {
+      return { steps: null, activeCalories: null, sleepHours: null, weight: null, restingHeartRate: null };
+    }
+
+    const buildMetric = (avg: any, high: any, low: any): HealthSummaryMetric | null => {
+      if (avg == null) return null;
+      return { avg: Number(avg), high: Number(high), low: Number(low) };
+    };
+
+    return {
+      steps: buildMetric(row.steps_avg, row.steps_high, row.steps_low),
+      activeCalories: buildMetric(row.active_calories_avg, row.active_calories_high, row.active_calories_low),
+      sleepHours: buildMetric(row.sleep_hours_avg, row.sleep_hours_high, row.sleep_hours_low),
+      weight: buildMetric(row.weight_avg, row.weight_high, row.weight_low),
+      restingHeartRate: buildMetric(row.rhr_avg, row.rhr_high, row.rhr_low),
+    };
+  } catch (error) {
+    console.error('Error getting health summary:', error);
+    return { steps: null, activeCalories: null, sleepHours: null, weight: null, restingHeartRate: null };
+  }
+}
+
+export async function getWorkoutMinutesByDate(
+  userId: string,
+  startDate: string,
+  endDate: string
+): Promise<Record<string, number>> {
+  try {
+    const start = parseDateOnly(startDate);
+    const end = parseDateOnly(endDate);
+    if (!start || !end) throw new Error('Invalid date format, expected YYYY-MM-DD');
+
+    const result = await sql`
+      SELECT
+        date::date AS workout_date,
+        SUM(
+          CASE
+            WHEN type = 'run' AND run_data IS NOT NULL
+              THEN CEIL((run_data->>'durationSeconds')::numeric / 60)
+            ELSE
+              CEIL(EXTRACT(EPOCH FROM (updated_at - created_at)) / 60)
+          END
+        )::int AS total_minutes
+      FROM workouts
+      WHERE user_id = ${userId}
+      AND date::date >= ${toDateOnlyString(start)}
+      AND date::date <= ${toDateOnlyString(end)}
+      GROUP BY date::date
+      ORDER BY date::date ASC;
+    `;
+
+    const map: Record<string, number> = {};
+    for (const row of result.rows) {
+      map[toDateOnlyString(new Date(row.workout_date))] = row.total_minutes;
+    }
+    return map;
+  } catch (error) {
+    console.error('Error getting workout minutes:', error);
+    return {};
   }
 }
