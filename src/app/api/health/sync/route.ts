@@ -10,7 +10,7 @@ export async function POST(request: NextRequest) {
         }
 
         const body = await request.json();
-        const { date, steps, activeCalories, restingHeartRate, sleepHours, vo2Max, weight } = body;
+        const { date, steps, activeCalories, restingHeartRate, sleepHours, vo2Max, weight, distance, exerciseMinutes } = body;
 
         if (!date) {
             return NextResponse.json({ error: 'Date is required (YYYY-MM-DD)' }, { status: 400 });
@@ -25,6 +25,8 @@ export async function POST(request: NextRequest) {
             sleepHours,
             vo2Max,
             weight,
+            distance,
+            exerciseMinutes,
         });
 
         if (!result) {

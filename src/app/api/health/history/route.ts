@@ -34,6 +34,8 @@ export async function GET(request: NextRequest) {
       restingHeartRate: m.restingHeartRate ?? null,
       sleepHours: m.sleepHours ?? null,
       weight: m.weight ?? null,
+      distance: m.distance ?? null,
+      exerciseMinutes: m.exerciseMinutes ?? null,
       workoutMinutes: workoutMinutes[m.date] ?? 0,
     }));
 
