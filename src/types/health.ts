@@ -7,5 +7,6 @@ export interface DailyHealthMetrics {
   restingHeartRate?: number;
   sleepHours?: number;
   vo2Max?: number;
+  weight?: number;
   updatedAt?: Date;
 }
