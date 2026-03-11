@@ -397,13 +397,17 @@ export async function initDatabase() {
         sleep_hours DECIMAL(4,1),
         vo2_max DECIMAL(4,1),
         weight DECIMAL(5,2),
+        distance DECIMAL(6,2),
+        exercise_minutes INTEGER,
         updated_at TIMESTAMP DEFAULT NOW(),
         UNIQUE(user_id, date)
       );
     `;
 
-    // Add weight column if missing (migration for existing databases)
+    // Add columns if missing (migration for existing databases)
     await sql`ALTER TABLE daily_health_metrics ADD COLUMN IF NOT EXISTS weight DECIMAL(5,2);`;
+    await sql`ALTER TABLE daily_health_metrics ADD COLUMN IF NOT EXISTS distance DECIMAL(6,2);`;
+    await sql`ALTER TABLE daily_health_metrics ADD COLUMN IF NOT EXISTS exercise_minutes INTEGER;`;
 
     console.log('Database initialized successfully');
   } catch (error) {
@@ -2033,6 +2037,8 @@ function mapHealthMetricsRow(row: any): DailyHealthMetrics {
     sleepHours: row.sleep_hours ? Number(row.sleep_hours) : undefined,
     vo2Max: row.vo2_max ? Number(row.vo2_max) : undefined,
     weight: row.weight ? Number(row.weight) : undefined,
+    distance: row.distance ? Number(row.distance) : undefined,
+    exerciseMinutes: row.exercise_minutes ?? undefined,
     updatedAt: new Date(row.updated_at),
   };
 }
@@ -2047,6 +2053,8 @@ export async function upsertDailyHealthMetrics(
     sleepHours?: number;
     vo2Max?: number;
     weight?: number;
+    distance?: number;
+    exerciseMinutes?: number;
   }
 ): Promise<DailyHealthMetrics | null> {
   try {
@@ -2056,11 +2064,11 @@ export async function upsertDailyHealthMetrics(
 
     const result = await sql`
       INSERT INTO daily_health_metrics (
-        user_id, date, steps, active_calories, resting_heart_rate, sleep_hours, vo2_max, weight, updated_at
+        user_id, date, steps, active_calories, resting_heart_rate, sleep_hours, vo2_max, weight, distance, exercise_minutes, updated_at
       ) VALUES (
         ${userId}, ${dateStr}, ${metrics.steps ?? null}, ${metrics.activeCalories ?? null},
         ${metrics.restingHeartRate ?? null}, ${metrics.sleepHours ?? null}, ${metrics.vo2Max ?? null},
-        ${metrics.weight ?? null}, NOW()
+        ${metrics.weight ?? null}, ${metrics.distance ?? null}, ${metrics.exerciseMinutes ?? null}, NOW()
       )
       ON CONFLICT (user_id, date) DO UPDATE SET
         steps = COALESCE(EXCLUDED.steps, daily_health_metrics.steps),
@@ -2069,6 +2077,8 @@ export async function upsertDailyHealthMetrics(
         sleep_hours = COALESCE(EXCLUDED.sleep_hours, daily_health_metrics.sleep_hours),
         vo2_max = COALESCE(EXCLUDED.vo2_max, daily_health_metrics.vo2_max),
         weight = COALESCE(EXCLUDED.weight, daily_health_metrics.weight),
+        distance = COALESCE(EXCLUDED.distance, daily_health_metrics.distance),
+        exercise_minutes = COALESCE(EXCLUDED.exercise_minutes, daily_health_metrics.exercise_minutes),
         updated_at = NOW()
       RETURNING *;
     `;
@@ -2119,6 +2129,8 @@ export interface HealthSummary {
   sleepHours: HealthSummaryMetric | null;
   weight: HealthSummaryMetric | null;
   restingHeartRate: HealthSummaryMetric | null;
+  distance: HealthSummaryMetric | null;
+  exerciseMinutes: HealthSummaryMetric | null;
 }
 
 export async function getHealthSummary(
@@ -2147,17 +2159,23 @@ export async function getHealthSummary(
         MIN(weight) AS weight_low,
         ROUND(AVG(resting_heart_rate))::int AS rhr_avg,
         MAX(resting_heart_rate)::int AS rhr_high,
-        MIN(resting_heart_rate)::int AS rhr_low
+        MIN(resting_heart_rate)::int AS rhr_low,
+        ROUND(AVG(distance)::numeric, 2) AS distance_avg,
+        MAX(distance) AS distance_high,
+        MIN(distance) AS distance_low,
+        ROUND(AVG(exercise_minutes))::int AS exercise_minutes_avg,
+        MAX(exercise_minutes)::int AS exercise_minutes_high,
+        MIN(exercise_minutes)::int AS exercise_minutes_low
       FROM daily_health_metrics
       WHERE user_id = ${userId}
       AND date >= ${toDateOnlyString(start)}
       AND date <= ${toDateOnlyString(end)}
-      AND (steps IS NOT NULL OR active_calories IS NOT NULL OR sleep_hours IS NOT NULL OR weight IS NOT NULL OR resting_heart_rate IS NOT NULL);
+      AND (steps IS NOT NULL OR active_calories IS NOT NULL OR sleep_hours IS NOT NULL OR weight IS NOT NULL OR resting_heart_rate IS NOT NULL OR distance IS NOT NULL OR exercise_minutes IS NOT NULL);
     `;
 
     const row = result.rows[0];
     if (!row) {
-      return { steps: null, activeCalories: null, sleepHours: null, weight: null, restingHeartRate: null };
+      return { steps: null, activeCalories: null, sleepHours: null, weight: null, restingHeartRate: null, distance: null, exerciseMinutes: null };
     }
 
     const buildMetric = (avg: any, high: any, low: any): HealthSummaryMetric | null => {
@@ -2171,10 +2189,12 @@ export async function getHealthSummary(
       sleepHours: buildMetric(row.sleep_hours_avg, row.sleep_hours_high, row.sleep_hours_low),
       weight: buildMetric(row.weight_avg, row.weight_high, row.weight_low),
       restingHeartRate: buildMetric(row.rhr_avg, row.rhr_high, row.rhr_low),
+      distance: buildMetric(row.distance_avg, row.distance_high, row.distance_low),
+      exerciseMinutes: buildMetric(row.exercise_minutes_avg, row.exercise_minutes_high, row.exercise_minutes_low),
     };
   } catch (error) {
     console.error('Error getting health summary:', error);
-    return { steps: null, activeCalories: null, sleepHours: null, weight: null, restingHeartRate: null };
+    return { steps: null, activeCalories: null, sleepHours: null, weight: null, restingHeartRate: null, distance: null, exerciseMinutes: null };
   }
 }
 

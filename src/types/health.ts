@@ -8,5 +8,7 @@ export interface DailyHealthMetrics {
   sleepHours?: number;
   vo2Max?: number;
   weight?: number;
+  distance?: number;
+  exerciseMinutes?: number;
   updatedAt?: Date;
 }
