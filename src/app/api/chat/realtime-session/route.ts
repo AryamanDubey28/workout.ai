@@ -134,7 +134,7 @@ ${goalContext}`;
     if (!response.ok) {
       const errorText = await response.text();
       console.error('Failed to create ephemeral token:', errorText);
-      return NextResponse.json({ error: 'Failed to create ephemeral token' }, { status: 500 });
+      return NextResponse.json({ error: `Failed to create ephemeral token: ${errorText}` }, { status: 500 });
     }
 
     const data = await response.json();
