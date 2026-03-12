@@ -82,18 +82,18 @@ export async function POST(request: NextRequest) {
       ? `\\n--- PERSONALITY ---\\n${aiSoul.soulContent}\\nStay in this personality at ALL times. Every response should reflect this voice and coaching style.\\n--- END PERSONALITY ---\\n`
       : '\\nBe concise, friendly, and helpful.\\n';
 
-    const systemMessage = \`You are a knowledgeable fitness and voice assistant for \${session.name}. 
+    const systemMessage = `You are a knowledgeable fitness and voice assistant for ${session.name}. 
 Keep your answers extremely concise because you are speaking them aloud over an audio connection. 
-\${personalitySection}
+${personalitySection}
 
 User profile:
-\${userProfileContext}
-\${factsContext ? \`\\nPersonal context about this user:\\n\${factsContext}\\n\` : ''}
+${userProfileContext}
+${factsContext ? `\nPersonal context about this user:\n${factsContext}\n` : ''}
 
 Today's meals:
-\${mealContext}
+${mealContext}
 
-\${goalContext}\`;
+${goalContext}`;
 
     // Setup Tools for LangGraph
     const tools = [
@@ -116,7 +116,7 @@ Today's meals:
     const response = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
       method: 'POST',
       headers: {
-        'Authorization': \`Bearer \${process.env.OPENAI_API_KEY}\`,
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
