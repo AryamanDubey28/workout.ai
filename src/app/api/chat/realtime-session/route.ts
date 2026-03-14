@@ -113,8 +113,6 @@ ${goalContext}`;
     ];
 
     // Try /v1/realtime/sessions first (beta), fall back to /v1/realtime/client_secrets (GA)
-    let secret: string;
-
     // Attempt 1: /v1/realtime/sessions (flat params)
     let response = await fetch('https://api.openai.com/v1/realtime/sessions', {
       method: 'POST',
@@ -156,7 +154,7 @@ ${goalContext}`;
     }
 
     const data = await response.json();
-    secret = data.client_secret?.value ?? data.client_secret;
+    const secret = data.client_secret?.value ?? data.client_secret;
     return NextResponse.json({
       client_secret: secret,
       instructions: systemMessage,
