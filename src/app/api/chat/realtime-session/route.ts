@@ -120,14 +120,8 @@ ${goalContext}`;
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        session: {
-          type: 'realtime',
-          model: 'gpt-4o-realtime-preview', // The recommended model for realtime
-          instructions: systemMessage,
-          voice: 'alloy',
-          tools: tools,
-          tool_choice: 'auto'
-        }
+        model: 'gpt-4o-realtime-preview',
+        voice: 'alloy',
       })
     });
 
@@ -138,8 +132,10 @@ ${goalContext}`;
     }
 
     const data = await response.json();
-    return NextResponse.json({ 
-      client_secret: data.client_secret.value 
+    return NextResponse.json({
+      client_secret: data.client_secret.value,
+      instructions: systemMessage,
+      tools,
     });
 
   } catch (error: any) {
