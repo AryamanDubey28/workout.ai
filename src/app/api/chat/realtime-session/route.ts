@@ -112,12 +112,16 @@ ${goalContext}`;
       // You can expand with more tools here
     ];
 
-    // Create ephemeral token via standard fetch (OpenAI SDK might lack dedicated typings for clientSecrets yet)
-    const response = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
+    // Try /v1/realtime/sessions first (beta), fall back to /v1/realtime/client_secrets (GA)
+    let secret: string;
+
+    // Attempt 1: /v1/realtime/sessions (flat params)
+    let response = await fetch('https://api.openai.com/v1/realtime/sessions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
         'Content-Type': 'application/json',
+        'OpenAI-Beta': 'realtime=v1',
       },
       body: JSON.stringify({
         model: 'gpt-4o-realtime-preview',
@@ -126,14 +130,35 @@ ${goalContext}`;
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Failed to create ephemeral token:', errorText);
-      return NextResponse.json({ error: `Failed to create ephemeral token: ${errorText}` }, { status: 500 });
+      const err1 = await response.text();
+      console.error('sessions endpoint failed, trying client_secrets:', err1);
+
+      // Attempt 2: /v1/realtime/client_secrets (GA nested format)
+      response = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          session: {
+            type: 'realtime',
+            model: 'gpt-realtime',
+          }
+        })
+      });
+
+      if (!response.ok) {
+        const err2 = await response.text();
+        console.error('client_secrets endpoint also failed:', err2);
+        return NextResponse.json({ error: `Failed to create ephemeral token. Attempt 1: ${err1} | Attempt 2: ${err2}` }, { status: 500 });
+      }
     }
 
     const data = await response.json();
+    secret = data.client_secret?.value ?? data.client_secret;
     return NextResponse.json({
-      client_secret: data.client_secret.value,
+      client_secret: secret,
       instructions: systemMessage,
       tools,
     });
