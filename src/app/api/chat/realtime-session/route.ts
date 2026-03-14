@@ -11,42 +11,18 @@ import {
   getAiSoul,
   getDailyHealthMetrics,
 } from '@/lib/db';
-import OpenAI from 'openai';
-import { UserFact } from '@/types/user';
+import {
+  formatWorkoutsForContext,
+  formatMealsForContext,
+  formatMealHistoryForContext,
+  formatGoalForContext,
+  formatUserFactsForContext,
+  formatUserProfileForContext,
+  formatHealthMetricsForContext,
+} from '@/lib/chatContext';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
-
-// Re-using context formatters from chat/route.ts (simplified for voice context)
-
-function formatBodyweightForContext(rawWeight: unknown): string {
-  const weightLbs = Number(rawWeight);
-  if (!Number.isFinite(weightLbs)) return 'unknown';
-  const weightKg = weightLbs * 0.45359237;
-  return `${Number.isInteger(weightLbs) ? String(weightLbs) : weightLbs.toFixed(1)} lb (${weightKg.toFixed(1)} kg)`;
-}
-
-function formatUserProfileForContext(user: any, goal: any): string {
-  if (!user) return 'Age: unknown. Weight: unknown. Height: not set. Sex: not set. Activity level: not set.';
-  return `Age: ${user.age ?? 'unknown'}. Weight: ${formatBodyweightForContext(user.weight)}. Height: ${goal?.heightCm ? `${goal.heightCm} cm` : 'not set'}. Sex: ${goal?.sex || 'not set'}. Activity level: ${goal?.activityLevel || 'not set'}.`;
-}
-
-function formatGoalForContext(goal: any): string {
-  if (!goal) return 'No macro goals set.';
-  return `Goal: ${goal.goalType} - ${goal.calories} cal, ${goal.protein}g protein, ${goal.carbs}g carbs, ${goal.fat}g fat daily`;
-}
-
-function formatMealsForContext(meals: any[]): string {
-  if (!meals || meals.length === 0) return 'No meals logged today.';
-  const mealLines = meals.map(m => `  - ${m.description}: ${m.macros.calories} cal, ${m.macros.protein}g protein`);
-  const totals = meals.reduce((acc, m) => ({ calories: acc.calories + m.macros.calories, protein: acc.protein + m.macros.protein }), { calories: 0, protein: 0 });
-  return `${mealLines.join('\\n')}\\n  Total so far: ${totals.calories} cal, ${totals.protein}g protein`;
-}
-
-function formatUserFactsForContext(facts: UserFact[]): string {
-  if (!facts || facts.length === 0) return '';
-  return facts.map(f => `- [${f.category}] ${f.content}`).join('\\n');
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -63,39 +39,77 @@ export async function POST(request: NextRequest) {
 
     const now = new Date();
     const todayKey = now.toISOString().split('T')[0];
+    const currentDateUtcIso = now.toISOString();
+    const currentDateUtcLong = now.toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      timeZone: 'UTC',
+    });
 
-    // Fetch essential context for voice mode
-    const [userProfile, todayMeals, macroGoal, userFacts, aiSoul] = await Promise.all([
+    const twoWeeksAgo = new Date(now);
+    twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
+    const twoWeeksAgoKey = twoWeeksAgo.toISOString().split('T')[0];
+
+    const oneWeekAgo = new Date(now);
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+    const oneWeekAgoKey = oneWeekAgo.toISOString().split('T')[0];
+
+    // Fetch the same context as the chat agent
+    const [userProfile, workouts, todayMeals, mealHistory, macroGoal, userFacts, aiSoul, healthMetrics] = await Promise.all([
       getUserById(session.userId),
+      getUserWorkouts(session.userId),
       getUserMealsByDate(session.userId, todayKey),
+      getUserMealsForDateRange(session.userId, twoWeeksAgoKey, todayKey),
       getMacroGoal(session.userId),
       getUserFacts(session.userId),
       getAiSoul(session.userId),
+      getDailyHealthMetrics(session.userId, oneWeekAgoKey, todayKey),
     ]);
 
     const userProfileContext = formatUserProfileForContext(userProfile, macroGoal);
+    const workoutContext = formatWorkoutsForContext(workouts);
     const mealContext = formatMealsForContext(todayMeals);
+    const mealHistoryContext = formatMealHistoryForContext(mealHistory, todayKey);
     const goalContext = formatGoalForContext(macroGoal);
     const factsContext = formatUserFactsForContext(userFacts);
+    const healthContext = formatHealthMetricsForContext(healthMetrics);
 
+    // Build personality section — same as chat agent
     const personalitySection = aiSoul
-      ? `\\n--- PERSONALITY ---\\n${aiSoul.soulContent}\\nStay in this personality at ALL times. Every response should reflect this voice and coaching style.\\n--- END PERSONALITY ---\\n`
-      : '\\nBe concise, friendly, and helpful.\\n';
+      ? `\n--- PERSONALITY ---\n${aiSoul.soulContent}\nStay in this personality at ALL times. Every response should reflect this voice and coaching style.\n--- END PERSONALITY ---\n`
+      : '';
 
-    const systemMessage = `You are a knowledgeable fitness and voice assistant for ${session.name}. 
-Keep your answers extremely concise because you are speaking them aloud over an audio connection. 
+    const defaultTone = aiSoul
+      ? ''
+      : '\nBe concise, friendly, and helpful. Reference specific workouts, meals, and goals when relevant. If they ask about progress, analyze trends in their data. If they ask about nutrition, factor in their goal type, remaining macros for the day, and recent eating patterns from the meal history. Keep responses focused and practical.\n';
+
+    // Same context as chat agent, with voice-specific preamble
+    const systemMessage = `You are a knowledgeable fitness and workout assistant for ${session.name}. You have access to their profile metrics (age, weight, height, sex, activity level), their complete workout history (including workout notes), today's meals, the past 2 weeks of meal history, and their nutrition goals. You can provide advice on training, form, programming, recovery, and nutrition.
+Keep your answers extremely concise because you are speaking them aloud over an audio connection. Use short sentences. Do not use markdown or formatting — plain speech only.
 ${personalitySection}
+Current date context: ${currentDateUtcLong} (UTC date key: ${todayKey}, UTC timestamp: ${currentDateUtcIso}). Use this to reason about recency and interpret terms like today, yesterday, and last workout.
+Unit rules: bodyweight in the user profile is stored in pounds (lb). Workout exercise loads are stored in kilograms (kg), unless marked as Bodyweight/BW. Keep those units accurate in responses.
 
 User profile:
 ${userProfileContext}
-${factsContext ? `\nPersonal context about this user:\n${factsContext}\n` : ''}
+${factsContext ? `\nPersonal context about this user:\n${factsContext}\nUse these facts to personalize your responses — reference injuries, dietary needs, goals, and preferences naturally.\n` : ''}${userFacts.length < 3 ? `\nYou don't know much about this user yet. When it feels natural (not forced), ask a friendly question to learn about them — their fitness background, injuries, dietary preferences, goals, or lifestyle. Don't ask more than one discovery question per message, and only when contextually appropriate.\n` : ''}
+${healthContext}
+
+Here is their complete workout history (progression summary first, then recent workouts in detail, then older workouts in compact format):
+${workoutContext}
 
 Today's meals:
 ${mealContext}
 
-${goalContext}`;
+Meal history (past 2 weeks, each line is one day with daily totals and individual meals):
+${mealHistoryContext}
 
-    // Setup Tools for LangGraph
+${goalContext}
+${defaultTone}`;
+
+    // Setup Tools
     const tools = [
       {
         type: 'function',
@@ -109,11 +123,9 @@ ${goalContext}`;
           required: ['description'],
         },
       },
-      // You can expand with more tools here
     ];
 
     // Try /v1/realtime/sessions first (beta), fall back to /v1/realtime/client_secrets (GA)
-    // Attempt 1: /v1/realtime/sessions (flat params)
     let response = await fetch('https://api.openai.com/v1/realtime/sessions', {
       method: 'POST',
       headers: {
@@ -131,7 +143,6 @@ ${goalContext}`;
       const err1 = await response.text();
       console.error('sessions endpoint failed, trying client_secrets:', err1);
 
-      // Attempt 2: /v1/realtime/client_secrets (GA nested format)
       response = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
         method: 'POST',
         headers: {
