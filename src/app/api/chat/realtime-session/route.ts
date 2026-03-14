@@ -35,6 +35,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'OpenAI API key not configured' }, { status: 500 });
     }
 
+    const body = await request.json().catch(() => ({}));
+    const allowedVoices = ['alloy', 'ash', 'ballad', 'coral', 'echo', 'sage', 'shimmer', 'verse'];
+    const voice = allowedVoices.includes(body.voice) ? body.voice : 'ash';
+
     await initDatabase();
 
     const now = new Date();
@@ -135,7 +139,7 @@ ${defaultTone}`;
       },
       body: JSON.stringify({
         model: 'gpt-4o-realtime-preview',
-        voice: 'alloy',
+        voice,
       })
     });
 

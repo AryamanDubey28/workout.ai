@@ -90,9 +90,22 @@ export async function POST(request: NextRequest) {
     // Defensive fallback for items
     const responseItems = Array.isArray(analysis.items) ? analysis.items : [];
 
+    // Recompute totals from items so breakdown always matches header
+    const responseMacros = responseItems.length > 0
+      ? responseItems.reduce(
+          (acc: any, item: any) => ({
+            calories: acc.calories + (item.macros?.calories || 0),
+            protein: acc.protein + (item.macros?.protein || 0),
+            carbs: acc.carbs + (item.macros?.carbs || 0),
+            fat: acc.fat + (item.macros?.fat || 0),
+          }),
+          { calories: 0, protein: 0, carbs: 0, fat: 0 }
+        )
+      : analysis.macros;
+
     return NextResponse.json({
       description: analysis.description,
-      macros: analysis.macros,
+      macros: responseMacros,
       items: responseItems,
     });
   } catch (error: any) {
