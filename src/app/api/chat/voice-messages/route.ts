@@ -6,6 +6,7 @@ import {
   touchConversation,
   updateConversationTitle,
 } from '@/lib/db';
+import { runPersonalityAgent } from '@/lib/agents/personalityAgent';
 
 // POST /api/chat/voice-messages — Bulk save voice transcript messages
 export async function POST(request: NextRequest) {
@@ -51,6 +52,16 @@ export async function POST(request: NextRequest) {
     }
 
     await touchConversation(conversationId);
+
+    // Run personality extraction if enough user messages (fire-and-forget)
+    const userMsgCount = messages.filter(
+      (m: { role: string }) => m.role === 'user',
+    ).length;
+    if (userMsgCount >= 3) {
+      runPersonalityAgent(session.userId, conversationId).catch((err) =>
+        console.error('Voice personality agent error:', err),
+      );
+    }
 
     return NextResponse.json({ success: true, saved: messages.length });
   } catch (error) {
