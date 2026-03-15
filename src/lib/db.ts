@@ -435,6 +435,9 @@ export async function initDatabase() {
       );
     `;
 
+    // Add type column to chat_conversations (migration for existing databases)
+    await sql`ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS type VARCHAR(10) NOT NULL DEFAULT 'text';`;
+
     console.log('Database initialized successfully');
   } catch (error) {
     console.error('Error initializing database:', error);
@@ -1620,6 +1623,7 @@ export async function upsertMacroGoal(userId: string, goal: MacroGoal): Promise<
 export interface ChatConversation {
   id: string;
   title: string;
+  type: string;
   created_at: Date;
   updated_at: Date;
 }
@@ -1628,7 +1632,7 @@ export interface ChatConversation {
 export async function getConversations(userId: string): Promise<ChatConversation[]> {
   try {
     const result = await sql`
-      SELECT id, title, created_at, updated_at
+      SELECT id, title, type, created_at, updated_at
       FROM chat_conversations
       WHERE user_id = ${userId}
       ORDER BY updated_at DESC;
@@ -1636,6 +1640,7 @@ export async function getConversations(userId: string): Promise<ChatConversation
     return result.rows.map(row => ({
       id: row.id,
       title: row.title,
+      type: row.type || 'text',
       created_at: new Date(row.created_at),
       updated_at: new Date(row.updated_at),
     }));
@@ -1646,17 +1651,18 @@ export async function getConversations(userId: string): Promise<ChatConversation
 }
 
 // Create a new conversation
-export async function createConversation(userId: string, title: string = 'New Chat'): Promise<ChatConversation | null> {
+export async function createConversation(userId: string, title: string = 'New Chat', type: string = 'text'): Promise<ChatConversation | null> {
   try {
     const result = await sql`
-      INSERT INTO chat_conversations (user_id, title)
-      VALUES (${userId}, ${title})
-      RETURNING id, title, created_at, updated_at;
+      INSERT INTO chat_conversations (user_id, title, type)
+      VALUES (${userId}, ${title}, ${type})
+      RETURNING id, title, type, created_at, updated_at;
     `;
     const row = result.rows[0];
     return {
       id: row.id,
       title: row.title,
+      type: row.type,
       created_at: new Date(row.created_at),
       updated_at: new Date(row.updated_at),
     };

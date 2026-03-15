@@ -32,8 +32,9 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json().catch(() => ({}));
     const title = body.title || 'New Chat';
+    const type = body.type === 'voice' ? 'voice' : 'text';
 
-    const conversation = await createConversation(session.userId, title);
+    const conversation = await createConversation(session.userId, title, type);
     if (!conversation) {
       return NextResponse.json({ error: 'Failed to create conversation' }, { status: 500 });
     }
