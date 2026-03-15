@@ -409,6 +409,32 @@ export async function initDatabase() {
     await sql`ALTER TABLE daily_health_metrics ADD COLUMN IF NOT EXISTS distance DECIMAL(6,2);`;
     await sql`ALTER TABLE daily_health_metrics ADD COLUMN IF NOT EXISTS exercise_minutes INTEGER;`;
 
+    // Device tokens for push notifications
+    await sql`
+      CREATE TABLE IF NOT EXISTS device_tokens (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        token TEXT NOT NULL,
+        platform VARCHAR(10) NOT NULL DEFAULT 'ios',
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(user_id, token)
+      );
+    `;
+    await sql`CREATE INDEX IF NOT EXISTS device_tokens_user_idx ON device_tokens(user_id);`;
+
+    // Notification preferences (server-triggered only)
+    await sql`
+      CREATE TABLE IF NOT EXISTS notification_preferences (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        inactivity_nudge BOOLEAN NOT NULL DEFAULT false,
+        inactivity_days INTEGER NOT NULL DEFAULT 3,
+        weekly_summary BOOLEAN NOT NULL DEFAULT false,
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+    `;
+
     console.log('Database initialized successfully');
   } catch (error) {
     console.error('Error initializing database:', error);
@@ -2236,4 +2262,181 @@ export async function getWorkoutMinutesByDate(
     console.error('Error getting workout minutes:', error);
     return {};
   }
+}
+
+// ─── Device Tokens ──────────────────────────────────────────────────────
+
+export async function upsertDeviceToken(
+  userId: string,
+  token: string,
+  platform: string,
+): Promise<void> {
+  await sql`
+    INSERT INTO device_tokens (user_id, token, platform)
+    VALUES (${userId}, ${token}, ${platform})
+    ON CONFLICT (user_id, token)
+    DO UPDATE SET updated_at = NOW();
+  `;
+}
+
+export async function removeDeviceToken(
+  userId: string,
+  token: string,
+): Promise<void> {
+  await sql`
+    DELETE FROM device_tokens
+    WHERE user_id = ${userId} AND token = ${token};
+  `;
+}
+
+export async function removeAllDeviceTokens(userId: string): Promise<void> {
+  await sql`DELETE FROM device_tokens WHERE user_id = ${userId};`;
+}
+
+export async function getDeviceTokensForUser(
+  userId: string,
+): Promise<string[]> {
+  const result = await sql`
+    SELECT token FROM device_tokens WHERE user_id = ${userId};
+  `;
+  return result.rows.map((r) => r.token);
+}
+
+// ─── Notification Preferences ───────────────────────────────────────────
+
+export interface NotificationPreferencesRow {
+  inactivity_nudge: boolean;
+  inactivity_days: number;
+  weekly_summary: boolean;
+}
+
+export async function upsertNotificationPreferences(
+  userId: string,
+  prefs: {
+    inactivityNudge: boolean;
+    inactivityDays: number;
+    weeklySummary: boolean;
+  },
+): Promise<NotificationPreferencesRow> {
+  const result = await sql`
+    INSERT INTO notification_preferences (user_id, inactivity_nudge, inactivity_days, weekly_summary)
+    VALUES (${userId}, ${prefs.inactivityNudge}, ${prefs.inactivityDays}, ${prefs.weeklySummary})
+    ON CONFLICT (user_id)
+    DO UPDATE SET
+      inactivity_nudge = ${prefs.inactivityNudge},
+      inactivity_days = ${prefs.inactivityDays},
+      weekly_summary = ${prefs.weeklySummary},
+      updated_at = NOW()
+    RETURNING inactivity_nudge, inactivity_days, weekly_summary;
+  `;
+  return result.rows[0] as NotificationPreferencesRow;
+}
+
+export async function getNotificationPreferences(
+  userId: string,
+): Promise<NotificationPreferencesRow | null> {
+  const result = await sql`
+    SELECT inactivity_nudge, inactivity_days, weekly_summary
+    FROM notification_preferences
+    WHERE user_id = ${userId};
+  `;
+  return (result.rows[0] as NotificationPreferencesRow) ?? null;
+}
+
+// ─── Notification Cron Queries ──────────────────────────────────────────
+
+export interface InactivityUser {
+  userId: string;
+  inactivityDays: number;
+  tokens: string[];
+}
+
+export async function getUsersWithInactivityNudgeEnabled(): Promise<
+  InactivityUser[]
+> {
+  const result = await sql`
+    SELECT
+      np.user_id,
+      np.inactivity_days,
+      array_agg(dt.token) AS tokens
+    FROM notification_preferences np
+    JOIN device_tokens dt ON dt.user_id = np.user_id
+    WHERE np.inactivity_nudge = true
+    GROUP BY np.user_id, np.inactivity_days;
+  `;
+  return result.rows.map((r) => ({
+    userId: r.user_id,
+    inactivityDays: r.inactivity_days,
+    tokens: r.tokens,
+  }));
+}
+
+export interface WeeklySummaryUser {
+  userId: string;
+  name: string;
+  tokens: string[];
+}
+
+export async function getUsersWithWeeklySummaryEnabled(): Promise<
+  WeeklySummaryUser[]
+> {
+  const result = await sql`
+    SELECT
+      np.user_id,
+      u.name,
+      array_agg(dt.token) AS tokens
+    FROM notification_preferences np
+    JOIN device_tokens dt ON dt.user_id = np.user_id
+    JOIN users u ON u.id = np.user_id
+    WHERE np.weekly_summary = true
+    GROUP BY np.user_id, u.name;
+  `;
+  return result.rows.map((r) => ({
+    userId: r.user_id,
+    name: r.name,
+    tokens: r.tokens,
+  }));
+}
+
+export async function getLastWorkoutDate(
+  userId: string,
+): Promise<string | null> {
+  const result = await sql`
+    SELECT MAX(date) AS last_date
+    FROM workouts
+    WHERE user_id = ${userId};
+  `;
+  return result.rows[0]?.last_date ?? null;
+}
+
+export interface WeeklyStats {
+  workouts: number;
+  meals: number;
+  avgCalories: number;
+}
+
+export async function getWeeklyStats(userId: string): Promise<WeeklyStats> {
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  const since = toDateOnlyString(sevenDaysAgo);
+
+  const workoutResult = await sql`
+    SELECT COUNT(*)::int AS count
+    FROM workouts
+    WHERE user_id = ${userId} AND date::date >= ${since};
+  `;
+
+  const mealResult = await sql`
+    SELECT
+      COUNT(*)::int AS count,
+      COALESCE(AVG(calories), 0)::int AS avg_calories
+    FROM meals
+    WHERE user_id = ${userId} AND date::date >= ${since};
+  `;
+
+  return {
+    workouts: workoutResult.rows[0]?.count ?? 0,
+    meals: mealResult.rows[0]?.count ?? 0,
+    avgCalories: mealResult.rows[0]?.avg_calories ?? 0,
+  };
 }
