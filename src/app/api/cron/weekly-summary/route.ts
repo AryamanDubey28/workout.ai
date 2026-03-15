@@ -1,9 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import {
-  initDatabase,
-  getUsersWithWeeklySummaryEnabled,
-  getWeeklyStats,
-} from '@/lib/db';
+import { initDatabase, getWeeklySummaryCandidates } from '@/lib/db';
 import {
   sendPushNotifications,
   buildWeeklySummary,
@@ -19,13 +15,19 @@ export async function GET(request: NextRequest) {
 
     await initDatabase();
 
-    const users = await getUsersWithWeeklySummaryEnabled();
+    // Single query: fetches all opted-in users with their stats in one go
+    const candidates = await getWeeklySummaryCandidates();
     const messages: ExpoPushMessage[] = [];
 
-    for (const user of users) {
-      const stats = await getWeeklyStats(user.userId);
+    for (const user of candidates) {
       for (const token of user.tokens) {
-        messages.push(buildWeeklySummary(token, stats));
+        messages.push(
+          buildWeeklySummary(token, {
+            workouts: user.workouts,
+            meals: user.meals,
+            avgCalories: user.avgCalories,
+          }),
+        );
       }
     }
 

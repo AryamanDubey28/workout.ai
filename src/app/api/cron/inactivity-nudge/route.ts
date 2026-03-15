@@ -1,9 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import {
-  initDatabase,
-  getUsersWithInactivityNudgeEnabled,
-  getLastWorkoutDate,
-} from '@/lib/db';
+import { initDatabase, getInactivityNudgeCandidates } from '@/lib/db';
 import {
   sendPushNotifications,
   buildInactivityNudge,
@@ -19,22 +15,13 @@ export async function GET(request: NextRequest) {
 
     await initDatabase();
 
-    const users = await getUsersWithInactivityNudgeEnabled();
+    // Single query: returns only users who are past their inactivity threshold
+    const candidates = await getInactivityNudgeCandidates();
     const messages: ExpoPushMessage[] = [];
 
-    for (const user of users) {
-      const lastWorkoutDate = await getLastWorkoutDate(user.userId);
-      if (!lastWorkoutDate) continue;
-
-      const daysSince = Math.floor(
-        (Date.now() - new Date(lastWorkoutDate).getTime()) /
-          (1000 * 60 * 60 * 24),
-      );
-
-      if (daysSince >= user.inactivityDays) {
-        for (const token of user.tokens) {
-          messages.push(buildInactivityNudge(token, daysSince));
-        }
+    for (const user of candidates) {
+      for (const token of user.tokens) {
+        messages.push(buildInactivityNudge(token, user.daysSinceLastWorkout));
       }
     }
 

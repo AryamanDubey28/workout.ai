@@ -2345,46 +2345,76 @@ export async function getNotificationPreferences(
 
 // ─── Notification Cron Queries ──────────────────────────────────────────
 
-export interface InactivityUser {
+export interface InactivityCandidate {
   userId: string;
   inactivityDays: number;
+  daysSinceLastWorkout: number;
   tokens: string[];
 }
 
-export async function getUsersWithInactivityNudgeEnabled(): Promise<
-  InactivityUser[]
+export async function getInactivityNudgeCandidates(): Promise<
+  InactivityCandidate[]
 > {
   const result = await sql`
     SELECT
       np.user_id,
       np.inactivity_days,
-      array_agg(dt.token) AS tokens
+      array_agg(dt.token) AS tokens,
+      COALESCE(
+        EXTRACT(DAY FROM NOW() - MAX(w.date))::int,
+        999
+      ) AS days_since
     FROM notification_preferences np
     JOIN device_tokens dt ON dt.user_id = np.user_id
+    LEFT JOIN workouts w ON w.user_id = np.user_id
     WHERE np.inactivity_nudge = true
-    GROUP BY np.user_id, np.inactivity_days;
+    GROUP BY np.user_id, np.inactivity_days
+    HAVING COALESCE(
+      EXTRACT(DAY FROM NOW() - MAX(w.date))::int,
+      999
+    ) >= np.inactivity_days;
   `;
   return result.rows.map((r) => ({
     userId: r.user_id,
     inactivityDays: r.inactivity_days,
+    daysSinceLastWorkout: r.days_since,
     tokens: r.tokens,
   }));
 }
 
-export interface WeeklySummaryUser {
+export interface WeeklySummaryCandidate {
   userId: string;
   name: string;
   tokens: string[];
+  workouts: number;
+  meals: number;
+  avgCalories: number;
 }
 
-export async function getUsersWithWeeklySummaryEnabled(): Promise<
-  WeeklySummaryUser[]
+export async function getWeeklySummaryCandidates(): Promise<
+  WeeklySummaryCandidate[]
 > {
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  const since = toDateOnlyString(sevenDaysAgo);
+
   const result = await sql`
     SELECT
       np.user_id,
       u.name,
-      array_agg(dt.token) AS tokens
+      array_agg(DISTINCT dt.token) AS tokens,
+      COALESCE((
+        SELECT COUNT(*)::int FROM workouts w
+        WHERE w.user_id = np.user_id AND w.date >= ${since}::timestamp
+      ), 0) AS workout_count,
+      COALESCE((
+        SELECT COUNT(*)::int FROM meals m
+        WHERE m.user_id = np.user_id AND m.date >= ${since}::date
+      ), 0) AS meal_count,
+      COALESCE((
+        SELECT AVG(m2.calories)::int FROM meals m2
+        WHERE m2.user_id = np.user_id AND m2.date >= ${since}::date
+      ), 0) AS avg_calories
     FROM notification_preferences np
     JOIN device_tokens dt ON dt.user_id = np.user_id
     JOIN users u ON u.id = np.user_id
@@ -2395,48 +2425,8 @@ export async function getUsersWithWeeklySummaryEnabled(): Promise<
     userId: r.user_id,
     name: r.name,
     tokens: r.tokens,
+    workouts: r.workout_count,
+    meals: r.meal_count,
+    avgCalories: r.avg_calories,
   }));
-}
-
-export async function getLastWorkoutDate(
-  userId: string,
-): Promise<string | null> {
-  const result = await sql`
-    SELECT MAX(date) AS last_date
-    FROM workouts
-    WHERE user_id = ${userId};
-  `;
-  return result.rows[0]?.last_date ?? null;
-}
-
-export interface WeeklyStats {
-  workouts: number;
-  meals: number;
-  avgCalories: number;
-}
-
-export async function getWeeklyStats(userId: string): Promise<WeeklyStats> {
-  const sevenDaysAgo = new Date();
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-  const since = toDateOnlyString(sevenDaysAgo);
-
-  const workoutResult = await sql`
-    SELECT COUNT(*)::int AS count
-    FROM workouts
-    WHERE user_id = ${userId} AND date::date >= ${since};
-  `;
-
-  const mealResult = await sql`
-    SELECT
-      COUNT(*)::int AS count,
-      COALESCE(AVG(calories), 0)::int AS avg_calories
-    FROM meals
-    WHERE user_id = ${userId} AND date::date >= ${since};
-  `;
-
-  return {
-    workouts: workoutResult.rows[0]?.count ?? 0,
-    meals: mealResult.rows[0]?.count ?? 0,
-    avgCalories: mealResult.rows[0]?.avg_calories ?? 0,
-  };
 }
