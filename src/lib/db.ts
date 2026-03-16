@@ -438,6 +438,61 @@ export async function initDatabase() {
     // Add type column to chat_conversations (migration for existing databases)
     await sql`ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS type VARCHAR(10) NOT NULL DEFAULT 'text';`;
 
+    // Create exercise_recommendations table for progressive overload
+    await sql`
+      CREATE TABLE IF NOT EXISTS exercise_recommendations (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        preset_name VARCHAR(255) NOT NULL,
+        exercise_name VARCHAR(255) NOT NULL,
+        exercise_position INTEGER NOT NULL,
+        recommended_weight VARCHAR(50),
+        recommended_reps INTEGER,
+        recommendation_type VARCHAR(30) NOT NULL DEFAULT 'maintain',
+        recommendation_text VARCHAR(255),
+        confidence VARCHAR(20) DEFAULT 'medium',
+        based_on_sessions INTEGER DEFAULT 0,
+        stall_count INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS exercise_recs_user_preset_idx
+        ON exercise_recommendations(user_id, preset_name);
+    `;
+
+    await sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS exercise_recs_unique_idx
+        ON exercise_recommendations(user_id, preset_name, exercise_name, exercise_position);
+    `;
+
+    // Create progression_params table for AI-tuned per-exercise parameters
+    await sql`
+      CREATE TABLE IF NOT EXISTS progression_params (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        exercise_name VARCHAR(255) NOT NULL,
+        exercise_category VARCHAR(30) DEFAULT 'unknown',
+        weight_increment DECIMAL(6,2),
+        weight_increment_pct DECIMAL(5,2),
+        stall_threshold INTEGER DEFAULT 3,
+        deload_pct DECIMAL(5,2) DEFAULT 10.0,
+        min_increment DECIMAL(6,2) DEFAULT 2.5,
+        max_increment DECIMAL(6,2) DEFAULT 10.0,
+        success_rate DECIMAL(5,2),
+        last_analyzed_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+    `;
+
+    await sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS progression_params_unique_idx
+        ON progression_params(user_id, exercise_name);
+    `;
+
     console.log('Database initialized successfully');
   } catch (error) {
     console.error('Error initializing database:', error);
@@ -2435,4 +2490,330 @@ export async function getWeeklySummaryCandidates(): Promise<
     meals: r.meal_count,
     avgCalories: r.avg_calories,
   }));
+}
+
+// ==================== Progressive Overload ====================
+
+export interface ExerciseHistoryEntry {
+  workoutDate: string;
+  exercisePosition: number;
+  weight: string;
+  weightsPerSet?: (string | 'BW')[];
+  sets: number;
+  reps: number;
+  repsPerSet?: number[];
+}
+
+export interface RecommendationRow {
+  exerciseName: string;
+  exercisePosition: number;
+  recommendedWeight: string | null;
+  recommendedReps: number | null;
+  recommendationType: string;
+  recommendationText: string | null;
+  confidence: string;
+  stallCount: number;
+  basedOnSessions: number;
+}
+
+export interface ProgressionParams {
+  exerciseName: string;
+  exerciseCategory: string;
+  weightIncrement: number | null;
+  weightIncrementPct: number | null;
+  stallThreshold: number;
+  deloadPct: number;
+  minIncrement: number;
+  maxIncrement: number;
+  successRate: number | null;
+  lastAnalyzedAt: string | null;
+}
+
+const DEFAULT_PROGRESSION_PARAMS: Omit<ProgressionParams, 'exerciseName'> = {
+  exerciseCategory: 'unknown',
+  weightIncrement: null,
+  weightIncrementPct: 5.0,
+  stallThreshold: 3,
+  deloadPct: 10.0,
+  minIncrement: 2.5,
+  maxIncrement: 10.0,
+  successRate: null,
+  lastAnalyzedAt: null,
+};
+
+// Fetch exercise history for a specific exercise within a specific workout context (preset)
+export async function getWorkoutHistoryForContext(
+  userId: string,
+  presetName: string,
+  exerciseName: string,
+  limit: number = 10
+): Promise<ExerciseHistoryEntry[]> {
+  try {
+    const result = await sql`
+      SELECT exercises, date
+      FROM workouts
+      WHERE user_id = ${userId}
+        AND LOWER(name) = LOWER(${presetName})
+        AND type = 'strength'
+      ORDER BY date DESC
+      LIMIT ${limit};
+    `;
+
+    const entries: ExerciseHistoryEntry[] = [];
+    const nameLower = exerciseName.toLowerCase();
+
+    for (const row of result.rows) {
+      const exercises: Exercise[] = Array.isArray(row.exercises) ? row.exercises : [];
+      for (let i = 0; i < exercises.length; i++) {
+        if (exercises[i].name.toLowerCase() === nameLower) {
+          const ex = exercises[i];
+          entries.push({
+            workoutDate: new Date(row.date).toISOString().split('T')[0],
+            exercisePosition: i,
+            weight: ex.weight || 'BW',
+            weightsPerSet: ex.weightsPerSet,
+            sets: ex.sets || ex.repsPerSet?.length || 0,
+            reps: ex.reps || 0,
+            repsPerSet: ex.repsPerSet,
+          });
+          break; // one match per workout
+        }
+      }
+    }
+
+    return entries;
+  } catch (error) {
+    console.error('Error fetching workout history for context:', error);
+    return [];
+  }
+}
+
+// Upsert a single exercise recommendation
+export async function upsertExerciseRecommendation(
+  userId: string,
+  data: {
+    presetName: string;
+    exerciseName: string;
+    exercisePosition: number;
+    recommendedWeight: string | null;
+    recommendedReps: number | null;
+    recommendationType: string;
+    recommendationText: string | null;
+    confidence: string;
+    basedOnSessions: number;
+    stallCount: number;
+  }
+): Promise<void> {
+  try {
+    await sql`
+      INSERT INTO exercise_recommendations (
+        user_id, preset_name, exercise_name, exercise_position,
+        recommended_weight, recommended_reps, recommendation_type,
+        recommendation_text, confidence, based_on_sessions, stall_count,
+        created_at, updated_at
+      ) VALUES (
+        ${userId}, ${data.presetName}, ${data.exerciseName}, ${data.exercisePosition},
+        ${data.recommendedWeight}, ${data.recommendedReps}, ${data.recommendationType},
+        ${data.recommendationText}, ${data.confidence}, ${data.basedOnSessions}, ${data.stallCount},
+        NOW(), NOW()
+      )
+      ON CONFLICT (user_id, preset_name, exercise_name, exercise_position)
+      DO UPDATE SET
+        recommended_weight = EXCLUDED.recommended_weight,
+        recommended_reps = EXCLUDED.recommended_reps,
+        recommendation_type = EXCLUDED.recommendation_type,
+        recommendation_text = EXCLUDED.recommendation_text,
+        confidence = EXCLUDED.confidence,
+        based_on_sessions = EXCLUDED.based_on_sessions,
+        stall_count = EXCLUDED.stall_count,
+        updated_at = NOW();
+    `;
+  } catch (error) {
+    console.error('Error upserting exercise recommendation:', error);
+  }
+}
+
+// Get all recommendations for a preset
+export async function getRecommendationsForPreset(
+  userId: string,
+  presetName: string
+): Promise<RecommendationRow[]> {
+  try {
+    const result = await sql`
+      SELECT
+        exercise_name, exercise_position,
+        recommended_weight, recommended_reps,
+        recommendation_type, recommendation_text,
+        confidence, stall_count, based_on_sessions
+      FROM exercise_recommendations
+      WHERE user_id = ${userId}
+        AND LOWER(preset_name) = LOWER(${presetName})
+      ORDER BY exercise_position ASC;
+    `;
+
+    return result.rows.map((r) => ({
+      exerciseName: r.exercise_name,
+      exercisePosition: r.exercise_position,
+      recommendedWeight: r.recommended_weight,
+      recommendedReps: r.recommended_reps,
+      recommendationType: r.recommendation_type,
+      recommendationText: r.recommendation_text,
+      confidence: r.confidence,
+      stallCount: r.stall_count,
+      basedOnSessions: r.based_on_sessions,
+    }));
+  } catch (error) {
+    console.error('Error getting recommendations for preset:', error);
+    return [];
+  }
+}
+
+// Get progression params for an exercise, falling back to defaults
+export async function getProgressionParams(
+  userId: string,
+  exerciseName: string
+): Promise<ProgressionParams> {
+  try {
+    const result = await sql`
+      SELECT
+        exercise_name, exercise_category,
+        weight_increment, weight_increment_pct,
+        stall_threshold, deload_pct,
+        min_increment, max_increment,
+        success_rate, last_analyzed_at
+      FROM progression_params
+      WHERE user_id = ${userId}
+        AND LOWER(exercise_name) = LOWER(${exerciseName})
+      LIMIT 1;
+    `;
+
+    if (result.rows.length > 0) {
+      const r = result.rows[0];
+      return {
+        exerciseName: r.exercise_name,
+        exerciseCategory: r.exercise_category || 'unknown',
+        weightIncrement: r.weight_increment ? parseFloat(r.weight_increment) : null,
+        weightIncrementPct: r.weight_increment_pct ? parseFloat(r.weight_increment_pct) : 5.0,
+        stallThreshold: r.stall_threshold ?? 3,
+        deloadPct: r.deload_pct ? parseFloat(r.deload_pct) : 10.0,
+        minIncrement: r.min_increment ? parseFloat(r.min_increment) : 2.5,
+        maxIncrement: r.max_increment ? parseFloat(r.max_increment) : 10.0,
+        successRate: r.success_rate ? parseFloat(r.success_rate) : null,
+        lastAnalyzedAt: r.last_analyzed_at ? new Date(r.last_analyzed_at).toISOString() : null,
+      };
+    }
+
+    return { exerciseName, ...DEFAULT_PROGRESSION_PARAMS };
+  } catch (error) {
+    console.error('Error getting progression params:', error);
+    return { exerciseName, ...DEFAULT_PROGRESSION_PARAMS };
+  }
+}
+
+// Upsert AI-tuned progression params
+export async function upsertProgressionParams(
+  userId: string,
+  exerciseName: string,
+  params: {
+    exerciseCategory?: string;
+    weightIncrement?: number | null;
+    weightIncrementPct?: number | null;
+    stallThreshold?: number;
+    deloadPct?: number;
+    minIncrement?: number;
+    maxIncrement?: number;
+    successRate?: number | null;
+  }
+): Promise<void> {
+  try {
+    await sql`
+      INSERT INTO progression_params (
+        user_id, exercise_name, exercise_category,
+        weight_increment, weight_increment_pct,
+        stall_threshold, deload_pct,
+        min_increment, max_increment,
+        success_rate, last_analyzed_at,
+        created_at, updated_at
+      ) VALUES (
+        ${userId}, ${exerciseName}, ${params.exerciseCategory || 'unknown'},
+        ${params.weightIncrement ?? null}, ${params.weightIncrementPct ?? 5.0},
+        ${params.stallThreshold ?? 3}, ${params.deloadPct ?? 10.0},
+        ${params.minIncrement ?? 2.5}, ${params.maxIncrement ?? 10.0},
+        ${params.successRate ?? null}, NOW(),
+        NOW(), NOW()
+      )
+      ON CONFLICT (user_id, exercise_name)
+      DO UPDATE SET
+        exercise_category = COALESCE(EXCLUDED.exercise_category, progression_params.exercise_category),
+        weight_increment = EXCLUDED.weight_increment,
+        weight_increment_pct = EXCLUDED.weight_increment_pct,
+        stall_threshold = EXCLUDED.stall_threshold,
+        deload_pct = EXCLUDED.deload_pct,
+        min_increment = EXCLUDED.min_increment,
+        max_increment = EXCLUDED.max_increment,
+        success_rate = EXCLUDED.success_rate,
+        last_analyzed_at = NOW(),
+        updated_at = NOW();
+    `;
+  } catch (error) {
+    console.error('Error upserting progression params:', error);
+  }
+}
+
+// Bulk query: get recent workouts with full exercise data (for the async agent)
+export async function getRecentWorkoutsWithExercises(
+  userId: string,
+  sinceDate: string
+): Promise<Array<{ id: string; name: string; date: string; exercises: Exercise[] }>> {
+  try {
+    const result = await sql`
+      SELECT id, name, date, exercises
+      FROM workouts
+      WHERE user_id = ${userId}
+        AND date >= ${sinceDate}::date
+        AND type = 'strength'
+      ORDER BY date DESC;
+    `;
+
+    return result.rows.map((r) => ({
+      id: r.id,
+      name: r.name || '',
+      date: new Date(r.date).toISOString().split('T')[0],
+      exercises: Array.isArray(r.exercises) ? r.exercises : [],
+    }));
+  } catch (error) {
+    console.error('Error getting recent workouts with exercises:', error);
+    return [];
+  }
+}
+
+// Get the latest last_analyzed_at for a user's progression params
+export async function getLastProgressionAnalysis(userId: string): Promise<Date | null> {
+  try {
+    const result = await sql`
+      SELECT MAX(last_analyzed_at) as last_analyzed
+      FROM progression_params
+      WHERE user_id = ${userId};
+    `;
+    if (result.rows.length > 0 && result.rows[0].last_analyzed) {
+      return new Date(result.rows[0].last_analyzed);
+    }
+    return null;
+  } catch (error) {
+    console.error('Error getting last progression analysis:', error);
+    return null;
+  }
+}
+
+// Get total workout count for a user (for agent trigger throttling)
+export async function getUserWorkoutCount(userId: string): Promise<number> {
+  try {
+    const result = await sql`
+      SELECT COUNT(*) as count FROM workouts WHERE user_id = ${userId};
+    `;
+    return parseInt(result.rows[0].count, 10) || 0;
+  } catch (error) {
+    console.error('Error getting user workout count:', error);
+    return 0;
+  }
 }

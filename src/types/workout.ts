@@ -16,6 +16,8 @@ export interface Exercise {
   useEffectiveReps: boolean;
   effectiveRepsMax?: number;
   effectiveRepsTarget?: number;
+  repRangeMin?: number;
+  repRangeMax?: number;
 }
 
 export interface Workout {

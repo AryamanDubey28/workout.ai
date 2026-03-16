@@ -42,7 +42,7 @@ Return ONLY a valid JSON object in this exact format:
 }`;
 
       const response = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-5-mini',
         messages: [{ role: 'system', content: SYSTEM_PROMPT }],
         max_completion_tokens: 300,
         temperature: 0.1,
