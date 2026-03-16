@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSessionFromCookie } from '@/lib/auth';
 import { deleteWorkout, getUserWorkout, initDatabase, updateWorkout } from '@/lib/db';
 import { Workout } from '@/types/workout';
+import { computeRecommendationsForWorkout } from '@/lib/progressionEngine';
 
 // GET /api/workouts/[id] - Get a specific workout
 export async function GET(
@@ -195,6 +196,11 @@ export async function PUT(
         { status: 404 }
       );
     }
+
+    // Fire-and-forget: recompute progressive overload recommendations
+    computeRecommendationsForWorkout(session.userId, updatedWorkout).catch(err =>
+      console.error('Recommendation compute error:', err)
+    );
 
     return NextResponse.json({
       message: 'Workout updated successfully',

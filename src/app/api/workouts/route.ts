@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSessionFromCookie } from '@/lib/auth';
-import { createWorkout, getUserWorkouts, initDatabase } from '@/lib/db';
+import { createWorkout, getUserWorkouts, initDatabase, getUserWorkoutCount, getLastProgressionAnalysis } from '@/lib/db';
 import { Workout } from '@/types/workout';
+import { computeRecommendationsForWorkout } from '@/lib/progressionEngine';
+import { runProgressionTuningAgent } from '@/lib/agents/progressionTuningAgent';
 
 // GET /api/workouts - Get all workouts for the authenticated user
 export async function GET() {
@@ -84,6 +86,29 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       );
     }
+
+    // Fire-and-forget: compute progressive overload recommendations
+    computeRecommendationsForWorkout(session.userId, createdWorkout).catch(err =>
+      console.error('Recommendation compute error:', err)
+    );
+
+    // Fire-and-forget: trigger AI progression tuning agent (throttled)
+    (async () => {
+      try {
+        const [workoutCount, lastAnalyzed] = await Promise.all([
+          getUserWorkoutCount(session.userId),
+          getLastProgressionAnalysis(session.userId),
+        ]);
+        const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+        if (workoutCount % 5 === 0 && (!lastAnalyzed || lastAnalyzed < sevenDaysAgo)) {
+          runProgressionTuningAgent(session.userId).catch(err =>
+            console.error('Progression tuning agent error:', err)
+          );
+        }
+      } catch (err) {
+        console.error('Progression agent trigger check error:', err);
+      }
+    })();
 
     return NextResponse.json({
       message: 'Workout created successfully',
