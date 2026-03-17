@@ -24,6 +24,10 @@ import {
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
+const DEFAULT_REALTIME_MODEL = 'gpt-realtime-1.5';
+const FALLBACK_REALTIME_MODEL = 'gpt-realtime';
+const DEFAULT_VOICE = 'ash';
+
 export async function POST(request: NextRequest) {
   try {
     const session = await getSessionFromCookie();
@@ -37,7 +41,9 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json().catch(() => ({}));
     const allowedVoices = ['alloy', 'ash', 'ballad', 'coral', 'echo', 'sage', 'shimmer', 'verse'];
-    const voice = allowedVoices.includes(body.voice) ? body.voice : 'ash';
+    const voice = allowedVoices.includes(body.voice) ? body.voice : DEFAULT_VOICE;
+    const preferredModel = process.env.OPENAI_REALTIME_MODEL?.trim() || DEFAULT_REALTIME_MODEL;
+    const candidateModels = Array.from(new Set([preferredModel, FALLBACK_REALTIME_MODEL]));
 
     await initDatabase();
 
@@ -91,7 +97,14 @@ export async function POST(request: NextRequest) {
 
     // Same context as chat agent, with voice-specific preamble
     const systemMessage = `You are a knowledgeable fitness and workout assistant for ${session.name}. You have access to their profile metrics (age, weight, height, sex, activity level), their complete workout history (including workout notes), today's meals, the past 2 weeks of meal history, and their nutrition goals. You can provide advice on training, form, programming, recovery, and nutrition.
-Keep your answers extremely concise because you are speaking them aloud over an audio connection. Use short sentences. Do not use markdown or formatting — plain speech only.
+
+Voice style rules:
+- Speak naturally, like a real coach in conversation.
+- Keep most replies to 1 to 3 short sentences unless the user asks for more detail.
+- Use contractions and everyday spoken phrasing when it feels natural.
+- Deliver answers briskly and confidently, but do not sound rushed or robotic.
+- Do not use markdown or formatting. Plain speech only.
+
 ${personalitySection}
 Current date context: ${currentDateUtcLong} (UTC date key: ${todayKey}, UTC timestamp: ${currentDateUtcIso}). Use this to reason about recency and interpret terms like today, yesterday, and last workout.
 Unit rules: bodyweight in the user profile is stored in pounds (lb). Workout exercise loads are stored in kilograms (kg), unless marked as Bodyweight/BW. Keep those units accurate in responses.
@@ -129,23 +142,35 @@ ${defaultTone}`;
       },
     ];
 
-    // Try /v1/realtime/sessions first (beta), fall back to /v1/realtime/client_secrets (GA)
-    let response = await fetch('https://api.openai.com/v1/realtime/sessions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-        'Content-Type': 'application/json',
-        'OpenAI-Beta': 'realtime=v1',
-      },
-      body: JSON.stringify({
-        model: 'gpt-realtime',
-        voice,
-      })
-    });
+    // Try the preferred realtime model first, then fall back to the older alias if needed.
+    let secret: string | null = null;
+    let selectedModel = candidateModels[0];
+    const tokenErrors: string[] = [];
 
-    if (!response.ok) {
+    for (const model of candidateModels) {
+      let response = await fetch('https://api.openai.com/v1/realtime/sessions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+          'Content-Type': 'application/json',
+          'OpenAI-Beta': 'realtime=v1',
+        },
+        body: JSON.stringify({
+          model,
+          voice,
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        secret = data.client_secret?.value ?? data.client_secret;
+        selectedModel = model;
+        break;
+      }
+
       const err1 = await response.text();
-      console.error('sessions endpoint failed, trying client_secrets:', err1);
+      console.error(`sessions endpoint failed for ${model}, trying client_secrets:`, err1);
+      tokenErrors.push(`sessions(${model}): ${err1}`);
 
       response = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
         method: 'POST',
@@ -156,22 +181,32 @@ ${defaultTone}`;
         body: JSON.stringify({
           session: {
             type: 'realtime',
-            model: 'gpt-realtime',
+            model,
+            voice,
           }
         })
       });
 
-      if (!response.ok) {
-        const err2 = await response.text();
-        console.error('client_secrets endpoint also failed:', err2);
-        return NextResponse.json({ error: `Failed to create ephemeral token. Attempt 1: ${err1} | Attempt 2: ${err2}` }, { status: 500 });
+      if (response.ok) {
+        const data = await response.json();
+        secret = data.client_secret?.value ?? data.client_secret;
+        selectedModel = model;
+        break;
       }
+
+      const err2 = await response.text();
+      console.error(`client_secrets endpoint also failed for ${model}:`, err2);
+      tokenErrors.push(`client_secrets(${model}): ${err2}`);
     }
 
-    const data = await response.json();
-    const secret = data.client_secret?.value ?? data.client_secret;
+    if (!secret) {
+      return NextResponse.json({ error: `Failed to create ephemeral token. ${tokenErrors.join(' | ')}` }, { status: 500 });
+    }
+
     return NextResponse.json({
       client_secret: secret,
+      model: selectedModel,
+      voice,
       instructions: systemMessage,
       tools,
     });
