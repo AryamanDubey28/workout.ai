@@ -12,28 +12,37 @@ const SYSTEM_PROMPT = `You are an expert sports nutritionist. You previously ana
 - Use USDA/standard nutritional databases as your reference, not rough guesses.
 - Protein should reflect the actual food — fruits, vegetables, grains, and oils are NOT significant protein sources. Do not inflate protein values.
 - Calories must be consistent with macros: calories ≈ (protein × 4) + (carbs × 4) + (fat × 9). If they don't add up, fix them.
-- Round all values to the nearest whole number.
-- Item macros must sum to the total macros (within ±2 rounding tolerance).
-- Include estimated quantity/weight in each item name (e.g. "Banana (1 medium, ~120g)").
-- Keep the description concise (max 60 chars).
+- Round all values to the nearest whole number (integers only).
 
-Always respond with valid JSON in this exact format:
+## Decomposition rules — follow these for consistent breakdowns:
+- ALWAYS break composite/multi-ingredient foods into their individual components (e.g. a sandwich → bread, filling, spread, vegetables separately).
+- Single-ingredient foods stay as one item (e.g. "Banana", "Apple", "Boiled egg").
+- For each item, use this naming format: "Ingredient (quantity, ~weight)" — e.g. "White bread (2 slices, ~60g)", "Butter (1 tbsp, ~14g)".
+- Order items from highest calorie to lowest.
+- Combine trivial garnishes/seasonings (<5 cal total) into one "Seasonings & garnish" item.
+
+## Output format:
+- Return valid JSON with description, macros, and items.
+- Item macros must sum to the total macros (within ±2 rounding tolerance).
+- Keep the description concise (max 60 chars).
+- All macro values must be whole numbers (integers, no decimals).
+
+Respond with this exact JSON structure:
 {
   "description": "Brief description of the meal (max 60 chars)",
   "macros": {
-    "calories": <number>,
-    "protein": <number in grams>,
-    "carbs": <number in grams>,
-    "fat": <number in grams>
+    "calories": <integer>,
+    "protein": <integer>,
+    "carbs": <integer>,
+    "fat": <integer>
   },
   "items": [
     {
-      "name": "Item name with estimated quantity/weight",
-      "macros": { "calories": 0, "protein": 0, "carbs": 0, "fat": 0 }
+      "name": "Ingredient (quantity, ~weight)",
+      "macros": { "calories": <integer>, "protein": <integer>, "carbs": <integer>, "fat": <integer> }
     }
   ]
-}
-Only return the JSON, no other text.`;
+}`;
 
 // POST /api/meals/analyze/refine - Refine a meal analysis based on user feedback
 export async function POST(request: NextRequest) {
@@ -70,8 +79,9 @@ export async function POST(request: NextRequest) {
             : `Please update the analysis: ${refinement}`,
         },
       ],
-      max_completion_tokens: 500,
-      temperature: 0.3,
+      max_completion_tokens: 800,
+      temperature: 0.1,
+      response_format: { type: 'json_object' },
     });
 
     const content = response.choices[0]?.message?.content?.trim();
@@ -88,23 +98,45 @@ export async function POST(request: NextRequest) {
     const analysis = JSON.parse(cleanContent);
 
     // Defensive fallback for items
-    const responseItems = Array.isArray(analysis.items) ? analysis.items : [];
+    const rawItems = Array.isArray(analysis.items) ? analysis.items : [];
+
+    // Post-process: round all macro values to integers and validate
+    const responseItems = rawItems.map((item: any) => ({
+      name: String(item.name || 'Unknown item'),
+      macros: {
+        calories: Math.round(item.macros?.calories || 0),
+        protein: Math.round(item.macros?.protein || 0),
+        carbs: Math.round(item.macros?.carbs || 0),
+        fat: Math.round(item.macros?.fat || 0),
+      },
+    }));
 
     // Recompute totals from items so breakdown always matches header
     const responseMacros = responseItems.length > 0
       ? responseItems.reduce(
           (acc: any, item: any) => ({
-            calories: acc.calories + (item.macros?.calories || 0),
-            protein: acc.protein + (item.macros?.protein || 0),
-            carbs: acc.carbs + (item.macros?.carbs || 0),
-            fat: acc.fat + (item.macros?.fat || 0),
+            calories: acc.calories + item.macros.calories,
+            protein: acc.protein + item.macros.protein,
+            carbs: acc.carbs + item.macros.carbs,
+            fat: acc.fat + item.macros.fat,
           }),
           { calories: 0, protein: 0, carbs: 0, fat: 0 }
         )
-      : analysis.macros;
+      : {
+          calories: Math.round(analysis.macros?.calories || 0),
+          protein: Math.round(analysis.macros?.protein || 0),
+          carbs: Math.round(analysis.macros?.carbs || 0),
+          fat: Math.round(analysis.macros?.fat || 0),
+        };
+
+    // Validate calorie consistency: recalculate from macros if off by >10%
+    const computedCal = (responseMacros.protein * 4) + (responseMacros.carbs * 4) + (responseMacros.fat * 9);
+    if (responseMacros.calories > 0 && Math.abs(responseMacros.calories - computedCal) / responseMacros.calories > 0.10) {
+      responseMacros.calories = Math.round(computedCal);
+    }
 
     return NextResponse.json({
-      description: analysis.description,
+      description: String(analysis.description || '').slice(0, 60),
       macros: responseMacros,
       items: responseItems,
     });
