@@ -371,6 +371,11 @@ export async function initDatabase() {
       CREATE INDEX IF NOT EXISTS user_facts_user_id_idx ON user_facts(user_id);
     `;
 
+    // Add updated_at column to user_facts (migration)
+    await sql`
+      ALTER TABLE user_facts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
+    `;
+
     // Create ai_souls table
     await sql`
       CREATE TABLE IF NOT EXISTS ai_souls (
@@ -1945,13 +1950,14 @@ function mapUserFactRow(row: any): UserFact {
     content: row.content,
     source: row.source as FactSource,
     createdAt: new Date(row.created_at),
+    updatedAt: row.updated_at ? new Date(row.updated_at) : new Date(row.created_at),
   };
 }
 
 export async function getUserFacts(userId: string): Promise<UserFact[]> {
   try {
     const result = await sql`
-      SELECT id, category, content, source, created_at
+      SELECT id, category, content, source, created_at, updated_at
       FROM user_facts
       WHERE user_id = ${userId}
       ORDER BY category, created_at DESC;
@@ -1969,15 +1975,50 @@ export async function createUserFact(
 ): Promise<UserFact | null> {
   try {
     const result = await sql`
-      INSERT INTO user_facts (user_id, category, content, source)
-      VALUES (${userId}, ${fact.category}, ${fact.content}, ${fact.source})
-      RETURNING id, category, content, source, created_at;
+      INSERT INTO user_facts (user_id, category, content, source, updated_at)
+      VALUES (${userId}, ${fact.category}, ${fact.content}, ${fact.source}, NOW())
+      RETURNING id, category, content, source, created_at, updated_at;
     `;
     return mapUserFactRow(result.rows[0]);
   } catch (error) {
     console.error('Error creating user fact:', error);
     return null;
   }
+}
+
+/** Update an AI-extracted fact's content and/or category */
+export async function updateUserFact(
+  userId: string,
+  factId: string,
+  content: string,
+  category: FactCategory
+): Promise<UserFact | null> {
+  try {
+    const result = await sql`
+      UPDATE user_facts
+      SET content = ${content}, category = ${category}, updated_at = NOW()
+      WHERE id = ${factId} AND user_id = ${userId} AND source = 'ai_extracted'
+      RETURNING id, category, content, source, created_at, updated_at;
+    `;
+    if (result.rows.length === 0) return null;
+    return mapUserFactRow(result.rows[0]);
+  } catch (error) {
+    console.error('Error updating user fact:', error);
+    return null;
+  }
+}
+
+/** Delete multiple facts by ID (validates ownership) */
+export async function deleteUserFactsBatch(
+  userId: string,
+  factIds: string[]
+): Promise<number> {
+  let deleted = 0;
+  for (const factId of factIds) {
+    const success = await deleteUserFact(userId, factId);
+    if (success) deleted++;
+  }
+  return deleted;
 }
 
 export async function deleteUserFact(userId: string, factId: string): Promise<boolean> {
@@ -2045,6 +2086,20 @@ export async function getRecentConversationIds(userId: string, limit: number = 3
   } catch (error) {
     console.error('Error getting recent conversation IDs:', error);
     return [];
+  }
+}
+
+/** Get total conversation count for a user (used for compaction trigger) */
+export async function getConversationCount(userId: string): Promise<number> {
+  try {
+    const result = await sql`
+      SELECT COUNT(*)::int as count FROM chat_conversations
+      WHERE user_id = ${userId};
+    `;
+    return result.rows[0]?.count ?? 0;
+  } catch (error) {
+    console.error('Error getting conversation count:', error);
+    return 0;
   }
 }
 

@@ -35,6 +35,7 @@ export interface UserFact {
   content: string;
   source: FactSource;
   createdAt: Date;
+  updatedAt: Date;
 }
 
 export type SoulPresetId = 'drill_sergeant' | 'hype_coach' | 'wise_mentor' | 'friendly_trainer' | 'science_nerd';

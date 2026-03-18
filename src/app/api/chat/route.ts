@@ -19,9 +19,10 @@ import {
   getUserFacts,
   getAiSoul,
   getDailyHealthMetrics,
+  getConversationCount,
 } from '@/lib/db';
 import OpenAI from 'openai';
-import { runPersonalityAgent } from '@/lib/agents/personalityAgent';
+import { runPersonalityAgent, runPersonalityAgentBatch } from '@/lib/agents/personalityAgent';
 import {
   formatWorkoutsForContext,
   formatMealsForContext,
@@ -338,6 +339,14 @@ Formatting rules: You may use Markdown for structure. Use **bold** for emphasis,
             runPersonalityAgent(session.userId, conversationId).catch((err) =>
               console.error('Personality agent error:', err)
             );
+            // Periodically run compaction (~every 10 conversations) to keep facts clean
+            getConversationCount(session.userId).then((count) => {
+              if (count > 0 && count % 10 === 0) {
+                runPersonalityAgentBatch(session.userId).catch((err) =>
+                  console.error('Personality compaction error:', err)
+                );
+              }
+            }).catch(() => {});
           }
           controller.close();
         } catch (err) {
