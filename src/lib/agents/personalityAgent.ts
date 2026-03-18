@@ -6,7 +6,10 @@ import {
   getChatMessages,
   getUserFacts,
   createUserFactsBatch,
+  createUserFact,
   deleteAiFactsByCategories,
+  deleteUserFact,
+  updateUserFact,
   getRecentConversationIds,
   getUserWorkouts,
   getUserMealsForDateRange,
@@ -18,49 +21,20 @@ import { UserFact, FactCategory } from "@/types/user";
 import { Workout } from "@/types/workout";
 import { Meal, MacroGoal } from "@/types/meal";
 
-// --- Zod schema for structured LLM output ---
-const ExtractedFactsSchema = z.object({
-  facts: z
-    .array(
-      z.object({
-        category: z
-          .enum(["health", "diet", "goals", "preferences", "lifestyle", "personality", "training", "adherence"])
-          .describe("The category this fact belongs to"),
-        content: z
-          .string()
-          .describe(
-            "A concise, third-person statement about the user (e.g., 'Is vegetarian', 'Has a shoulder injury')"
-          ),
-      })
-    )
-    .describe("Array of new personal facts extracted from the conversation"),
-});
+// ============================================================
+// SHARED CONSTANTS & HELPERS
+// ============================================================
 
-// --- Agent state ---
-const AgentState = Annotation.Root({
-  userId: Annotation<string>,
-  conversationId: Annotation<string>,
-  chatMessages: Annotation<string>,
-  existingFacts: Annotation<string>,
-  existingFactsList: Annotation<UserFact[]>({
-    reducer: (_a, b) => b ?? [],
-    default: () => [],
-  }),
-  behavioralContext: Annotation<string>({
-    reducer: (_a, b) => b ?? "",
-    default: () => "",
-  }),
-  extractedFacts: Annotation<z.infer<typeof ExtractedFactsSchema>["facts"]>({
-    reducer: (_a, b) => b ?? [],
-    default: () => [],
-  }),
-  error: Annotation<string | null>({
-    reducer: (_a, b) => b ?? null,
-    default: () => null,
-  }),
-});
+const FACT_CATEGORIES = [
+  "health", "diet", "goals", "preferences", "lifestyle", "personality", "training", "adherence",
+] as const;
 
-// --- Helpers for behavioral data summarization ---
+// Categories where AI facts are data-derived and should be refreshed, not accumulated
+const BEHAVIORAL_CATEGORIES = ["training", "adherence", "lifestyle"];
+const SIMILARITY_THRESHOLD = 0.55;
+const SOFT_FACT_CAP = 100;
+
+// --- Behavioral data summarization ---
 
 function summarizeWorkoutPatterns(workouts: Workout[]): string {
   if (workouts.length === 0) return "No workout history.";
@@ -76,15 +50,12 @@ function summarizeWorkoutPatterns(workouts: Workout[]): string {
     (w) => new Date(w.date) >= sixtyDaysAgo && new Date(w.date) < thirtyDaysAgo
   );
 
-  // Workout frequency
   const daysWithWorkouts30 = new Set(last30.map((w) => w.date)).size;
   const daysWithWorkoutsPrev = new Set(prev30.map((w) => w.date)).size;
 
-  // Weekly frequency
   const weeksInRange = Math.max(1, Math.ceil((now.getTime() - thirtyDaysAgo.getTime()) / (7 * 86400000)));
   const weeklyAvg = (daysWithWorkouts30 / weeksInRange).toFixed(1);
 
-  // Day of week distribution
   const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   const dayCounts: Record<string, number> = {};
   for (const w of last30) {
@@ -96,7 +67,6 @@ function summarizeWorkoutPatterns(workouts: Workout[]): string {
     .map(([day, count]) => `${day}: ${count}`)
     .join(", ");
 
-  // Workout types
   const typeCounts: Record<string, number> = {};
   for (const w of last30) {
     const name = w.name || "Unnamed";
@@ -108,7 +78,6 @@ function summarizeWorkoutPatterns(workouts: Workout[]): string {
     .map(([name, count]) => `${name}: ${count}x`)
     .join(", ");
 
-  // Gaps — consecutive days without workout
   const sortedDates = [...new Set(last30.map((w) => w.date))].sort();
   let maxGap = 0;
   for (let i = 1; i < sortedDates.length; i++) {
@@ -118,7 +87,6 @@ function summarizeWorkoutPatterns(workouts: Workout[]): string {
     if (gap > maxGap) maxGap = gap;
   }
 
-  // Strength vs run split
   const strengthCount = last30.filter((w) => w.type === "strength" || !w.type).length;
   const runCount = last30.filter((w) => w.type === "run").length;
 
@@ -160,7 +128,6 @@ function summarizeMealAdherence(
   const avgCals = Math.round(dayTotals.reduce((s, d) => s + d.calories, 0) / daysTracked);
   const avgProtein = Math.round(dayTotals.reduce((s, d) => s + d.protein, 0) / daysTracked);
 
-  // Adherence: within 15% of goal
   const calThreshold = macroGoal.calories * 0.15;
   const proteinThreshold = macroGoal.protein * 0.15;
   const daysOnCalTarget = dayTotals.filter(
@@ -170,7 +137,6 @@ function summarizeMealAdherence(
     (d) => Math.abs(d.protein - macroGoal.protein) <= proteinThreshold
   ).length;
 
-  // Weekend vs weekday adherence
   const weekendDays = dayTotals.filter((d) => {
     const dow = new Date(d.date).getDay();
     return dow === 0 || dow === 6;
@@ -187,10 +153,8 @@ function summarizeMealAdherence(
     ? Math.round(weekdayDays.reduce((s, d) => s + d.calories, 0) / weekdayDays.length)
     : 0;
 
-  // Days with no meals logged
   const daysNoMeals = dayTotals.filter((d) => d.mealCount === 0).length;
 
-  // Consistency: how many of the last 14 calendar days had meals logged
   const now = new Date();
   const last14 = new Set<string>();
   for (let i = 0; i < 14; i++) {
@@ -234,50 +198,96 @@ function summarizeHealthPatterns(metrics: any[]): string {
   return `Health Metrics (Past 14 Days):\n- Recorded Days: ${metrics.length}\n- Average Sleep: ${avgSleep} hours/night\n- Average Daily Steps: ${avgSteps}`;
 }
 
-// --- Node: Fetch context from DB ---
-async function fetchContext(
-  state: typeof AgentState.State
-): Promise<Partial<typeof AgentState.State>> {
+async function fetchBehavioralContext(userId: string): Promise<string> {
+  const now = new Date();
+  const twoWeeksAgo = new Date(now);
+  twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
+  const twoWeeksAgoKey = twoWeeksAgo.toISOString().split("T")[0];
+  const todayKey = now.toISOString().split("T")[0];
+
+  const [workouts, mealHistory, macroGoal, healthMetrics] = await Promise.all([
+    getUserWorkouts(userId),
+    getUserMealsForDateRange(userId, twoWeeksAgoKey, todayKey),
+    getMacroGoal(userId),
+    getDailyHealthMetrics(userId, twoWeeksAgoKey, todayKey),
+  ]);
+
+  const workoutSummary = summarizeWorkoutPatterns(workouts);
+  const mealSummary = summarizeMealAdherence(mealHistory, macroGoal);
+  const healthSummary = summarizeHealthPatterns(healthMetrics);
+
+  return `WORKOUT PATTERNS:\n${workoutSummary}\n\nMEAL & MACRO ADHERENCE:\n${mealSummary}\n\nLIFESTYLE & HEALTH:\n${healthSummary}`;
+}
+
+// ============================================================
+// MODE A: INCREMENTAL EXTRACTION (runs after chat messages)
+// ============================================================
+
+const ExtractedFactsSchema = z.object({
+  facts: z
+    .array(
+      z.object({
+        category: z
+          .enum(FACT_CATEGORIES)
+          .describe("The category this fact belongs to"),
+        content: z
+          .string()
+          .describe(
+            "A concise, third-person statement about the user (e.g., 'Is vegetarian', 'Has a shoulder injury')"
+          ),
+      })
+    )
+    .describe("Array of new personal facts extracted from the conversation. Return empty if nothing worth capturing."),
+});
+
+const IncrementalState = Annotation.Root({
+  userId: Annotation<string>,
+  conversationId: Annotation<string>,
+  chatMessages: Annotation<string>,
+  existingFacts: Annotation<string>,
+  existingFactsList: Annotation<UserFact[]>({
+    reducer: (_a, b) => b ?? [],
+    default: () => [],
+  }),
+  behavioralContext: Annotation<string>({
+    reducer: (_a, b) => b ?? "",
+    default: () => "",
+  }),
+  extractedFacts: Annotation<z.infer<typeof ExtractedFactsSchema>["facts"]>({
+    reducer: (_a, b) => b ?? [],
+    default: () => [],
+  }),
+  error: Annotation<string | null>({
+    reducer: (_a, b) => b ?? null,
+    default: () => null,
+  }),
+});
+
+async function incrementalFetchContext(
+  state: typeof IncrementalState.State
+): Promise<Partial<typeof IncrementalState.State>> {
   try {
     await initDatabase();
 
-    const now = new Date();
-    const twoWeeksAgo = new Date(now);
-    twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
-    const twoWeeksAgoKey = twoWeeksAgo.toISOString().split("T")[0];
-    const todayKey = now.toISOString().split("T")[0];
-
-    const [messages, existingFacts, workouts, mealHistory, macroGoal, healthMetrics] = await Promise.all([
+    const [messages, existingFacts, behavioralContext] = await Promise.all([
       getChatMessages(state.conversationId, 50),
       getUserFacts(state.userId),
-      getUserWorkouts(state.userId),
-      getUserMealsForDateRange(state.userId, twoWeeksAgoKey, todayKey),
-      getMacroGoal(state.userId),
-      getDailyHealthMetrics(state.userId, twoWeeksAgoKey, todayKey),
+      fetchBehavioralContext(state.userId),
     ]);
 
-    // Only proceed if there are enough user messages to analyze
     const userMessages = messages.filter((m) => m.role === "user");
     if (userMessages.length < 3) {
       return { error: "Not enough user messages to extract facts" };
     }
 
-    // Format chat transcript
     const chatMessages = messages
       .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
       .join("\n\n");
 
-    // Format existing facts for dedup context
     const existingFactsText =
       existingFacts.length > 0
         ? existingFacts.map((f) => `[${f.category}] ${f.content}`).join("\n")
         : "(none)";
-
-    // Build behavioral context
-    const workoutSummary = summarizeWorkoutPatterns(workouts);
-    const mealSummary = summarizeMealAdherence(mealHistory, macroGoal);
-    const healthSummary = summarizeHealthPatterns(healthMetrics);
-    const behavioralContext = `WORKOUT PATTERNS:\n${workoutSummary}\n\nMEAL & MACRO ADHERENCE:\n${mealSummary}\n\nLIFESTYLE & HEALTH:\n${healthSummary}`;
 
     return {
       chatMessages,
@@ -286,15 +296,14 @@ async function fetchContext(
       behavioralContext,
     };
   } catch (err) {
-    console.error("Personality agent - fetchContext error:", err);
+    console.error("Personality agent - incrementalFetchContext error:", err);
     return { error: "Failed to fetch context" };
   }
 }
 
-// --- Node: Extract facts with LLM ---
-async function extractFacts(
-  state: typeof AgentState.State
-): Promise<Partial<typeof AgentState.State>> {
+async function incrementalExtractFacts(
+  state: typeof IncrementalState.State
+): Promise<Partial<typeof IncrementalState.State>> {
   if (state.error) return {};
 
   try {
@@ -307,7 +316,7 @@ async function extractFacts(
     const structuredLlm = llm.withStructuredOutput(ExtractedFactsSchema);
 
     const result = await structuredLlm.invoke(
-      `You are analyzing a fitness app user's conversation AND their actual workout/meal data. Your job is to extract personal facts AND behavioral insights that would help personalize future interactions.
+      `You are a memory curator for a fitness coaching app. Your job is to extract meaningful personal insights from conversations that would help the AI coach personalize future interactions.
 
 CONVERSATION:
 ${state.chatMessages}
@@ -315,71 +324,50 @@ ${state.chatMessages}
 EXISTING KNOWN FACTS (do NOT re-extract these — they are already saved):
 ${state.existingFacts}
 
-BEHAVIORAL DATA:
+BEHAVIORAL DATA (for reference — the chat system already has access to this raw data):
 ${state.behavioralContext}
 
 INSTRUCTIONS:
-1. Extract facts from BOTH the conversation and the behavioral data. Look for:
-   - Health conditions, injuries, physical limitations (category: health)
-   - Dietary preferences, restrictions, allergies (category: diet)
-   - Fitness goals, weight goals, training objectives (category: goals)
-   - Workout preferences, schedule preferences, equipment access (category: preferences)
-   - Training frequency, consistency, workout type patterns, rest day patterns (category: training)
-     Examples: "Trains 5x per week consistently", "Mostly trains on weekdays", "Prefers push/pull/legs split", "Takes weekends off", "Training frequency dropped recently"
-   - Macro adherence, diet consistency, tracking habits, weekend vs weekday patterns (category: adherence)
-     Examples: "Consistently hits protein targets", "Struggles with diet on weekends", "Tracks meals daily", "Tends to under-eat on rest days", "Calorie intake often exceeds goal by 200+"
-   - Lifestyle factors from synced metrics: sleep duration patterns, daily activity levels outside workouts (category: lifestyle)
-     Examples: "Consistently gets less than 6 hours of sleep", "Highly active lifestyle outside of gym with 15k+ daily steps", "Sedentary lifestyle with low step count on rest days", "Sleeps more on weekends"
-   - Personality traits, mindset, emotional relationship with fitness (category: personality)
 
-2. For behavioral facts (training, adherence), analyze the DATA objectively:
-   - Compare actual workout frequency to what the user says or to reasonable expectations
-   - Check calorie/macro adherence rates and identify patterns (weekday vs weekend, consistency)
-   - Note gaps, trends, or notable patterns
-   - Be specific with numbers where possible (e.g., "Averages 4.2 sessions/week" not just "Works out often")
+1. SELECTIVITY IS KEY. Only extract facts when the user shares something genuinely personal. If the conversation is purely about exercise form, workout logistics, or general fitness questions with no personal revelations — return an EMPTY facts array. Quality over quantity.
 
-3. Each fact should be:
-   - Written in third person (e.g., "Trains 5x per week" not "I train 5x per week")
-   - Concise (one short sentence)
-   - A stable pattern, NOT a one-off observation
-   - Genuinely NEW — not a rephrasing of an existing fact
+2. What to extract (organized by category):
+   - health: Injuries, conditions, physical limitations (e.g., "Has a rotator cuff injury", "Deals with lower back pain")
+   - diet: Dietary preferences, restrictions, allergies, relationship with food (e.g., "Is vegetarian", "Finds cutting mentally challenging")
+   - goals: Fitness goals, weight goals, timelines, motivations (e.g., "Wants to compete in a powerlifting meet", "Cutting for summer")
+   - preferences: Workout style preferences, schedule preferences, equipment, coaching style preferences (e.g., "Prefers push/pull/legs", "Likes direct yes-or-no coaching")
+   - training: High-level training patterns — qualitative only (e.g., "Trains consistently on weekdays", "Recently increased training volume", "Primarily does strength training")
+   - adherence: Diet consistency patterns — qualitative only (e.g., "Struggles with diet on weekends", "Very consistent meal tracker", "Tends to under-eat on rest days")
+   - lifestyle: Qualitative activity/sleep patterns (e.g., "Highly active outside the gym", "Consistently gets insufficient sleep", "Has a sedentary desk job")
+   - personality: Mindset, emotional patterns, motivation style (e.g., "Responds well to encouragement", "Gets impatient with slow progress", "Anxious about eating late at night")
 
-4. CRITICAL DEDUPLICATION: Two facts are duplicates if they convey the same underlying information, even with different wording.
-   For example, these pairs are ALL duplicates — do NOT return the second if the first exists:
-   - "Tracks nutrition daily" ↔ "Logs meals essentially every day"
-   - "Trains on average 2.8 sessions per week" ↔ "Averages 2.8 workouts per week"
-   - "Has ankle mobility limitations" ↔ "Has ankle mobility and balance limitations that affect Bulgarian split squats"
-   - "Calorie intake is highly consistent" ↔ "Calorie intake adherence is very high"
-   If an existing fact covers the same topic with similar or more detail, do NOT add a new one.
+3. CRITICAL RULES:
+   - NO specific numbers for volatile metrics. Do NOT write "Averages 8,777 steps per day" or "Gets 6.1 hours of sleep" or "Hits protein target 80% of the time". The chat system already has raw data with exact numbers. Facts should capture the PATTERN qualitatively (e.g., "Gets insufficient sleep" not "Averages 4.9 hours of sleep").
+   - Write in third person, concise (one short sentence per fact)
+   - Only capture stable patterns, NOT one-off observations
+   - Must be genuinely NEW — not a rephrasing of an existing fact
 
-5. Only extract conversation-based facts the user explicitly stated or strongly implied.
-   Behavioral facts should be based on clear patterns in the data (not single data points).
+4. DEDUPLICATION: Two facts are duplicates if they convey the same underlying insight, even with different wording. If an existing fact covers the same topic, do NOT add a new one.
 
-6. If no new facts can be extracted, return an empty facts array.
+5. Return at most 5 new facts per analysis. Prefer fewer, higher-quality facts.
 
-7. Return at most 7 new facts per analysis.`
+6. If nothing worth capturing, return an empty facts array. This is the expected outcome for most routine conversations.`
     );
 
     return { extractedFacts: result.facts };
   } catch (err) {
-    console.error("Personality agent - extractFacts error:", err);
+    console.error("Personality agent - incrementalExtractFacts error:", err);
     return { error: "LLM extraction failed" };
   }
 }
 
-// Categories where AI facts are data-derived and should be refreshed, not accumulated
-const BEHAVIORAL_CATEGORIES = ["training", "adherence"];
-const SIMILARITY_THRESHOLD = 0.5;
-
-// --- Node: Deduplicate and save to DB ---
-async function deduplicateAndSave(
-  state: typeof AgentState.State
-): Promise<Partial<typeof AgentState.State>> {
+async function incrementalDeduplicateAndSave(
+  state: typeof IncrementalState.State
+): Promise<Partial<typeof IncrementalState.State>> {
   if (state.error) return {};
   if (!state.extractedFacts || state.extractedFacts.length === 0) return {};
 
   try {
-    // Split extracted facts into behavioral (refreshable) and stable
     const behavioralFacts = state.extractedFacts.filter((f) =>
       BEHAVIORAL_CATEGORIES.includes(f.category)
     );
@@ -391,7 +379,6 @@ async function deduplicateAndSave(
     if (behavioralFacts.length > 0) {
       await deleteAiFactsByCategories(state.userId, BEHAVIORAL_CATEGORIES);
 
-      // Dedup behavioral facts against each other (in case LLM returns internal dupes)
       const dedupedBehavioral: typeof behavioralFacts = [];
       for (const fact of behavioralFacts) {
         const isDupe = dedupedBehavioral.some(
@@ -412,7 +399,7 @@ async function deduplicateAndSave(
       }
     }
 
-    // For stable categories: dedup against existing facts using Jaccard similarity
+    // For stable categories: dedup against existing facts
     if (stableFacts.length > 0) {
       const existingContents = state.existingFactsList
         .filter((f) => !BEHAVIORAL_CATEGORIES.includes(f.category))
@@ -424,7 +411,6 @@ async function deduplicateAndSave(
         );
       });
 
-      // Also dedup new stable facts against each other
       const dedupedStable: typeof newStableFacts = [];
       for (const fact of newStableFacts) {
         const isDupe = dedupedStable.some(
@@ -445,19 +431,18 @@ async function deduplicateAndSave(
       }
     }
   } catch (err) {
-    console.error("Personality agent - deduplicateAndSave error:", err);
+    console.error("Personality agent - incrementalDeduplicateAndSave error:", err);
     return { error: "Failed to save facts" };
   }
 
   return {};
 }
 
-// --- Build and compile the graph ---
-function buildPersonalityGraph() {
-  return new StateGraph(AgentState)
-    .addNode("fetchContext", fetchContext)
-    .addNode("extractFacts", extractFacts)
-    .addNode("deduplicateAndSave", deduplicateAndSave)
+function buildIncrementalGraph() {
+  return new StateGraph(IncrementalState)
+    .addNode("fetchContext", incrementalFetchContext)
+    .addNode("extractFacts", incrementalExtractFacts)
+    .addNode("deduplicateAndSave", incrementalDeduplicateAndSave)
     .addEdge(START, "fetchContext")
     .addEdge("fetchContext", "extractFacts")
     .addEdge("extractFacts", "deduplicateAndSave")
@@ -465,48 +450,317 @@ function buildPersonalityGraph() {
     .compile();
 }
 
-// Singleton compiled graph
-let compiledGraph: ReturnType<typeof buildPersonalityGraph> | null = null;
+let incrementalGraph: ReturnType<typeof buildIncrementalGraph> | null = null;
 
-function getGraph() {
-  if (!compiledGraph) {
-    compiledGraph = buildPersonalityGraph();
+function getIncrementalGraph() {
+  if (!incrementalGraph) {
+    incrementalGraph = buildIncrementalGraph();
   }
-  return compiledGraph;
+  return incrementalGraph;
 }
 
-// --- Public entry points ---
+// ============================================================
+// MODE B: COMPACTION REVIEW (runs on profile load / periodically)
+// ============================================================
 
-/** Analyze a single conversation for personality facts */
+const CompactionActionsSchema = z.object({
+  actions: z
+    .array(
+      z.union([
+        z.object({
+          type: z.literal("keep"),
+          id: z.string().describe("The fact ID to keep unchanged"),
+        }),
+        z.object({
+          type: z.literal("update"),
+          id: z.string().describe("The fact ID to update"),
+          content: z.string().describe("The revised fact content"),
+          category: z.enum(FACT_CATEGORIES).describe("The category (can change)"),
+        }),
+        z.object({
+          type: z.literal("delete"),
+          id: z.string().describe("The fact ID to delete"),
+          reason: z.string().describe("Brief reason for deletion"),
+        }),
+        z.object({
+          type: z.literal("add"),
+          content: z.string().describe("New fact content to add"),
+          category: z.enum(FACT_CATEGORIES).describe("The category for the new fact"),
+        }),
+      ])
+    )
+    .describe("Actions to take on the user's fact memory. Every existing AI fact must have a keep, update, or delete action."),
+});
+
+type CompactionAction = z.infer<typeof CompactionActionsSchema>["actions"][number];
+
+const CompactionState = Annotation.Root({
+  userId: Annotation<string>,
+  aiFacts: Annotation<UserFact[]>({
+    reducer: (_a, b) => b ?? [],
+    default: () => [],
+  }),
+  userAddedFacts: Annotation<UserFact[]>({
+    reducer: (_a, b) => b ?? [],
+    default: () => [],
+  }),
+  behavioralContext: Annotation<string>({
+    reducer: (_a, b) => b ?? "",
+    default: () => "",
+  }),
+  recentChatContext: Annotation<string>({
+    reducer: (_a, b) => b ?? "",
+    default: () => "",
+  }),
+  actions: Annotation<CompactionAction[]>({
+    reducer: (_a, b) => b ?? [],
+    default: () => [],
+  }),
+  error: Annotation<string | null>({
+    reducer: (_a, b) => b ?? null,
+    default: () => null,
+  }),
+});
+
+async function compactionFetchContext(
+  state: typeof CompactionState.State
+): Promise<Partial<typeof CompactionState.State>> {
+  try {
+    await initDatabase();
+
+    const [allFacts, behavioralContext, conversationIds] = await Promise.all([
+      getUserFacts(state.userId),
+      fetchBehavioralContext(state.userId),
+      getRecentConversationIds(state.userId, 3),
+    ]);
+
+    // Separate AI-extracted (reviewable) from user-added (read-only)
+    const aiFacts = allFacts.filter((f) => f.source === "ai_extracted");
+    const userAddedFacts = allFacts.filter((f) => f.source === "user_added");
+
+    // Fetch recent conversation messages for context
+    let recentChatContext = "";
+    for (const convId of conversationIds) {
+      try {
+        const messages = await getChatMessages(convId, 30);
+        if (messages.length > 0) {
+          const transcript = messages
+            .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
+            .join("\n");
+          recentChatContext += `\n--- Conversation ---\n${transcript}\n`;
+        }
+      } catch {
+        // Skip failed conversations
+      }
+    }
+
+    return {
+      aiFacts,
+      userAddedFacts,
+      behavioralContext,
+      recentChatContext: recentChatContext || "(no recent conversations)",
+    };
+  } catch (err) {
+    console.error("Compaction agent - fetchContext error:", err);
+    return { error: "Failed to fetch context for compaction" };
+  }
+}
+
+async function compactionReview(
+  state: typeof CompactionState.State
+): Promise<Partial<typeof CompactionState.State>> {
+  if (state.error) return {};
+
+  // If no AI facts exist, just extract from behavioral data
+  const hasAiFacts = state.aiFacts.length > 0;
+
+  try {
+    const llm = new ChatOpenAI({
+      model: "gpt-5.4",
+      temperature: 0.2,
+      openAIApiKey: process.env.OPENAI_API_KEY,
+    });
+
+    const structuredLlm = llm.withStructuredOutput(CompactionActionsSchema);
+
+    // Format existing AI facts with IDs and timestamps
+    const aiFactsList = state.aiFacts.map((f) => {
+      const age = Math.floor((Date.now() - new Date(f.updatedAt).getTime()) / 86400000);
+      return `  ID: ${f.id} | Category: ${f.category} | Age: ${age}d | Content: "${f.content}"`;
+    }).join("\n");
+
+    // Format user-added facts (read-only context)
+    const userFactsList = state.userAddedFacts.length > 0
+      ? state.userAddedFacts.map((f) => `  [${f.category}] ${f.content}`).join("\n")
+      : "(none)";
+
+    const result = await structuredLlm.invoke(
+      `You are a memory manager for a fitness coaching app. Your job is to curate the AI's knowledge about this user — keeping it accurate, concise, non-redundant, and useful for personalizing coaching.
+
+${hasAiFacts ? `EXISTING AI-EXTRACTED FACTS (you MUST review each one — keep, update, or delete):
+${aiFactsList}` : "No existing AI-extracted facts yet."}
+
+USER-ADDED FACTS (read-only — do NOT touch these, but consider them for context):
+${userFactsList}
+
+CURRENT BEHAVIORAL DATA (raw metrics the chat system already has access to):
+${state.behavioralContext}
+
+RECENT CONVERSATIONS (for extracting new insights):
+${state.recentChatContext}
+
+INSTRUCTIONS:
+
+You are performing a FULL REVIEW of this user's fact memory. Think of this like managing a living document — a CLAUDE.md for the user.
+
+${hasAiFacts ? `1. REVIEW every AI fact above. For each one, output exactly one action:
+   - "keep" — fact is accurate, useful, and not redundant. Use the fact's ID.
+   - "update" — fact is partially correct but needs revision (e.g., outdated info, could be more concise, category should change). Use the fact's ID + provide new content/category.
+   - "delete" — fact is stale, redundant with another fact, redundant with raw data, or no longer accurate. Use the fact's ID + brief reason.` : "1. No existing facts to review."}
+
+2. MERGE duplicates: If two facts say essentially the same thing, keep the better one and delete the other.
+
+3. DELETE facts that just restate raw data with specific numbers. The chat system already has exact step counts, sleep hours, calorie numbers, etc. Facts should capture QUALITATIVE patterns instead:
+   BAD (delete): "Averages about 13.1k steps per day", "Gets 6.1 hours of sleep"
+   GOOD (keep/add): "Maintains a high daily activity level outside the gym", "Consistently gets insufficient sleep"
+
+4. ADD new facts if the behavioral data or recent conversations reveal meaningful patterns not yet captured. Use qualitative language for behavioral insights.
+
+5. Fact quality rules:
+   - Third person, concise (one short sentence)
+   - Captures a stable pattern or personal trait, NOT a one-off observation
+   - No specific numbers for volatile metrics (steps, sleep hours, calorie counts)
+   - Each fact should provide unique value — no overlap with other facts
+   - Don't duplicate information that user-added facts already cover
+
+6. SOFT CAP: Aim for at most ~${SOFT_FACT_CAP} AI facts total. If currently over, prioritize deletion of low-value facts. This isn't a hard limit — keeping ${SOFT_FACT_CAP + 10} high-quality facts is better than deleting useful ones to hit a number.
+
+7. Categories:
+   - health: Injuries, conditions, physical limitations
+   - diet: Dietary preferences, restrictions, relationship with food
+   - goals: Fitness goals, weight goals, motivations, timelines
+   - preferences: Workout/coaching style preferences, schedule, equipment
+   - training: Qualitative training patterns and consistency
+   - adherence: Qualitative diet tracking and consistency patterns
+   - lifestyle: Qualitative activity/sleep/lifestyle patterns
+   - personality: Mindset, emotional patterns, motivation style
+
+${hasAiFacts ? "8. EVERY existing AI fact must be accounted for with a keep, update, or delete action. Do not skip any." : "8. Since there are no existing facts, focus on adding new ones from the behavioral data and conversations."}`
+    );
+
+    return { actions: result.actions };
+  } catch (err) {
+    console.error("Compaction agent - review error:", err);
+    return { error: "LLM compaction review failed" };
+  }
+}
+
+async function compactionExecuteActions(
+  state: typeof CompactionState.State
+): Promise<Partial<typeof CompactionState.State>> {
+  if (state.error) return {};
+  if (!state.actions || state.actions.length === 0) return {};
+
+  const validIds = new Set(state.aiFacts.map((f) => f.id));
+  let kept = 0, updated = 0, deleted = 0, added = 0, skipped = 0;
+
+  try {
+    for (const action of state.actions) {
+      switch (action.type) {
+        case "keep":
+          if (validIds.has(action.id)) {
+            kept++;
+          } else {
+            skipped++;
+          }
+          break;
+
+        case "update":
+          if (validIds.has(action.id)) {
+            await updateUserFact(state.userId, action.id, action.content, action.category as FactCategory);
+            updated++;
+          } else {
+            skipped++;
+          }
+          break;
+
+        case "delete":
+          if (validIds.has(action.id)) {
+            await deleteUserFact(state.userId, action.id);
+            deleted++;
+          } else {
+            skipped++;
+          }
+          break;
+
+        case "add":
+          await createUserFact(state.userId, {
+            category: action.category as FactCategory,
+            content: action.content,
+            source: "ai_extracted",
+          });
+          added++;
+          break;
+      }
+    }
+
+    console.log(
+      `Compaction complete for user ${state.userId}: ${kept} kept, ${updated} updated, ${deleted} deleted, ${added} added, ${skipped} skipped (invalid IDs)`
+    );
+  } catch (err) {
+    console.error("Compaction agent - executeActions error:", err);
+    return { error: "Failed to execute compaction actions" };
+  }
+
+  return {};
+}
+
+function buildCompactionGraph() {
+  return new StateGraph(CompactionState)
+    .addNode("fetchContext", compactionFetchContext)
+    .addNode("reviewAndCompact", compactionReview)
+    .addNode("executeActions", compactionExecuteActions)
+    .addEdge(START, "fetchContext")
+    .addEdge("fetchContext", "reviewAndCompact")
+    .addEdge("reviewAndCompact", "executeActions")
+    .addEdge("executeActions", END)
+    .compile();
+}
+
+let compactionGraph: ReturnType<typeof buildCompactionGraph> | null = null;
+
+function getCompactionGraph() {
+  if (!compactionGraph) {
+    compactionGraph = buildCompactionGraph();
+  }
+  return compactionGraph;
+}
+
+// ============================================================
+// PUBLIC ENTRY POINTS
+// ============================================================
+
+/** Incremental extraction: analyze a single conversation for new facts */
 export async function runPersonalityAgent(
   userId: string,
   conversationId: string
 ): Promise<void> {
   try {
-    const graph = getGraph();
+    const graph = getIncrementalGraph();
     await graph.invoke({ userId, conversationId });
   } catch (err) {
-    console.error("Personality agent failed:", err);
+    console.error("Personality agent (incremental) failed:", err);
   }
 }
 
-/** Batch analyze recent conversations (used as catch-up on profile load) */
+/** Full compaction review: curate all facts (runs on profile load / periodically) */
 export async function runPersonalityAgentBatch(
   userId: string
 ): Promise<void> {
   try {
-    await initDatabase();
-    const conversationIds = await getRecentConversationIds(userId, 3);
-
-    for (const convId of conversationIds) {
-      try {
-        const graph = getGraph();
-        await graph.invoke({ userId, conversationId: convId });
-      } catch (err) {
-        console.error(`Personality agent batch failed for conv ${convId}:`, err);
-      }
-    }
+    const graph = getCompactionGraph();
+    await graph.invoke({ userId });
   } catch (err) {
-    console.error("Personality agent batch failed:", err);
+    console.error("Personality agent (compaction) failed:", err);
   }
 }

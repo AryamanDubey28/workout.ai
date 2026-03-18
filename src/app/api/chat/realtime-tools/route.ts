@@ -42,10 +42,11 @@ Return ONLY a valid JSON object in this exact format:
 }`;
 
       const response = await openai.chat.completions.create({
-        model: 'gpt-5-mini',
+        model: 'gpt-5.4-mini',
         messages: [{ role: 'system', content: SYSTEM_PROMPT }],
         max_completion_tokens: 300,
         temperature: 0.1,
+        response_format: { type: 'json_object' },
       });
 
       const content = response.choices[0]?.message?.content?.trim();
@@ -57,18 +58,19 @@ Return ONLY a valid JSON object in this exact format:
       }
 
       const analysis = JSON.parse(cleanContent);
-      
+      const macros = analysis.macros ?? {};
+
       const now = new Date();
       const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-      
+
       const savedMeal = await createMeal(session.userId, {
         id: crypto.randomUUID(),
-        description: analysis.description,
+        description: String(analysis.description || '').slice(0, 60),
         macros: {
-          calories: analysis.macros.calories,
-          protein: analysis.macros.protein,
-          carbs: analysis.macros.carbs,
-          fat: analysis.macros.fat,
+          calories: Math.round(macros.calories || 0),
+          protein: Math.round(macros.protein || 0),
+          carbs: Math.round(macros.carbs || 0),
+          fat: Math.round(macros.fat || 0),
         },
         date: today.toISOString(),
         category: 'snack'
