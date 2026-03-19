@@ -7,6 +7,8 @@ import {
   getProgressionParams,
   upsertProgressionParams,
   ProgressionParams,
+  logUsage,
+  UsageTracker,
 } from "@/lib/db";
 import { Exercise } from "@/types/workout";
 
@@ -105,10 +107,12 @@ async function analyze(state: typeof AgentState.State): Promise<Partial<typeof A
   if (state.error) return {};
 
   try {
+    const tracker = new UsageTracker();
     const llm = new ChatOpenAI({
       model: "gpt-5.4",
       temperature: 0.2,
       openAIApiKey: process.env.OPENAI_API_KEY,
+      callbacks: [tracker.getHandler()],
     });
 
     const structuredLlm = llm.withStructuredOutput(ProgressionAnalysisSchema);
@@ -157,6 +161,11 @@ For each exercise in the list, analyze the workout history and provide optimized
 6. **Success rate**: Estimate 0-100 based on how often the user successfully progressed when attempting a weight/rep increase.
 
 Return parameters for ALL exercises in the list. Be data-driven — base your recommendations on the actual patterns you see in the history, not just general guidelines.`);
+
+    // Fire-and-forget: log token usage
+    if (tracker.usage) {
+      logUsage(state.userId, 'progression_tuning', 'gpt-5.4', tracker.usage).catch(() => {});
+    }
 
     return { updatedParams: result.exercises };
   } catch (err) {

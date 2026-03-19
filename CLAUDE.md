@@ -39,11 +39,11 @@ All protected routes follow: `getSessionFromCookie()` → `initDatabase()` → d
 - **Goals:** `goals/` (GET, PUT) — macro goals
 - **Chat:** `chat/` (GET, POST streaming, DELETE), `chat/conversations/` (GET, POST), `chat/conversations/[id]/` (DELETE, PATCH)
 - **Soul:** `soul/` (GET, POST, DELETE) — AI personality per user
-- **Facts:** `facts/` (GET, POST), `facts/[id]/` (DELETE) — user facts extracted by AI or added manually
+- **Facts:** `facts/` (GET triggers compaction, POST), `facts/[id]/` (DELETE) — user facts extracted by AI or added manually
 
 ### Database
 
-PostgreSQL (Vercel Postgres / Neon). Tables: `users`, `workouts`, `exercise_patterns`, `common_exercises`, `meals`, `macro_goals`, `workout_presets`, `chat_conversations`, `chat_messages`, `food_suggestions`, `ai_souls`, `user_facts`. Schema is auto-initialized in `initDatabase()` with `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for migrations.
+PostgreSQL (Vercel Postgres / Neon). Tables: `users`, `workouts`, `exercise_patterns`, `common_exercises`, `meals`, `macro_goals`, `workout_presets`, `chat_conversations`, `chat_messages`, `food_suggestions`, `ai_souls`, `user_facts`. Schema is auto-initialized in `initDatabase()` with `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for migrations. `user_facts` has `updated_at` for staleness tracking (used by compaction agent).
 
 **Important:** The `@vercel/postgres` `sql` template tag does not support passing arrays as parameters. Use SQL subqueries instead of `ANY($array)` syntax.
 
@@ -60,7 +60,10 @@ Features:
 - **Meal analysis** (`/api/meals/analyze`) — Accepts text and/or image (base64) to estimate macros via OpenAI vision. Returns structured JSON with per-item breakdown.
 - **Food suggestion agent** (`src/lib/agents/foodSuggestionAgent.ts`) — LangGraph StateGraph with 3 nodes (fetchData → analyze → save). Analyzes 3 weeks of meal history to suggest frequently logged meals for the Food Bank. Uses `ChatOpenAI.withStructuredOutput(zodSchema)` for typed responses. Compiled graph is cached as a singleton.
 - **Soul builder agent** (`src/lib/agents/soulBuilderAgent.ts`) — LangGraph agent that generates AI personality ("soul") prompts from 5 presets (Drill Sergeant, Hype Coach, Wise Mentor, Friendly Trainer, Science Nerd) or custom user input. Soul is injected into chat system prompt.
-- **Personality agent** (`src/lib/agents/personalityAgent.ts`) — LangGraph agent that extracts structured user facts (health, diet, goals, preferences, lifestyle, personality, training, adherence) from chat history and workout/meal data. Facts stored in `user_facts` table and fed into chat context.
+- **Personality memory manager** (`src/lib/agents/personalityAgent.ts`) — Two-mode LangGraph agent that curates user facts (health, diet, goals, preferences, lifestyle, personality, training, adherence):
+  - **Incremental mode** (`runPersonalityAgent`): fires after chat conversations with 3+ messages. Extracts only genuinely personal insights — qualitative behavioral summaries (no specific numbers for volatile metrics). Returns empty for routine conversations.
+  - **Compaction mode** (`runPersonalityAgentBatch`): fires on profile/facts page load + every ~10 conversations. Reviews ALL AI-extracted facts with keep/update/delete/add actions. Merges duplicates, removes stale numeric facts, updates outdated info. Soft cap ~100 AI facts. User-added facts are read-only (never touched by compaction).
+  - Facts have `updated_at` timestamps for staleness tracking. Behavioral categories (training, adherence, lifestyle) are refreshed on extraction, not accumulated.
 
 ### Component patterns
 

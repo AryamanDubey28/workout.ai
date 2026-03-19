@@ -1,7 +1,7 @@
 import { Annotation, StateGraph, START, END } from "@langchain/langgraph";
 import { ChatOpenAI } from "@langchain/openai";
 import { z } from "zod";
-import { initDatabase, upsertAiSoul } from "@/lib/db";
+import { initDatabase, upsertAiSoul, logUsage, UsageTracker } from "@/lib/db";
 import { SoulPresetId } from "@/types/user";
 
 // --- Preset definitions ---
@@ -105,10 +105,12 @@ async function buildSoul(
   state: typeof AgentState.State
 ): Promise<Partial<typeof AgentState.State>> {
   try {
+    const tracker = new UsageTracker();
     const llm = new ChatOpenAI({
       model: "gpt-5.4",
       temperature: 0.7,
       openAIApiKey: process.env.OPENAI_API_KEY,
+      callbacks: [tracker.getHandler()],
     });
 
     const structuredLlm = llm.withStructuredOutput(SoulOutputSchema);
@@ -153,6 +155,11 @@ IMPORTANT RULES:
 
 For the name: use the preset name if it's a preset, or create a fitting short name for custom personalities.`
     );
+
+    // Fire-and-forget: log token usage
+    if (tracker.usage) {
+      logUsage(state.userId, 'soul_builder', 'gpt-5.4', tracker.usage).catch(() => {});
+    }
 
     return {
       generatedName: result.name,

@@ -20,6 +20,7 @@ import {
   getAiSoul,
   getDailyHealthMetrics,
   getConversationCount,
+  logUsage,
 } from '@/lib/db';
 import OpenAI from 'openai';
 import { runPersonalityAgent, runPersonalityAgentBatch } from '@/lib/agents/personalityAgent';
@@ -312,6 +313,7 @@ Formatting rules: You may use Markdown for structure. Use **bold** for emphasis,
       ],
       temperature: 0.7,
       stream: true,
+      stream_options: { include_usage: true },
     });
 
     let fullContent = '';
@@ -319,15 +321,27 @@ Formatting rules: You may use Markdown for structure. Use **bold** for emphasis,
     const readableStream = new ReadableStream({
       async start(controller) {
         try {
+          let usageData: any = null;
           for await (const chunk of stream) {
             const delta = chunk.choices[0]?.delta?.content;
             if (delta) {
               fullContent += delta;
               controller.enqueue(new TextEncoder().encode(delta));
             }
+            if (chunk.usage) {
+              usageData = chunk.usage;
+            }
           }
           // Save complete assistant message to DB after stream finishes
           await saveChatMessage(session.userId, conversationId, 'assistant', fullContent);
+          // Fire-and-forget: log token usage
+          if (usageData) {
+            logUsage(session.userId, 'chat', model, {
+              promptTokens: usageData.prompt_tokens ?? 0,
+              completionTokens: usageData.completion_tokens ?? 0,
+              cachedTokens: (usageData as any).prompt_tokens_details?.cached_tokens ?? 0,
+            }).catch(() => {});
+          }
           // For generic first messages, generate title from AI response
           if (deferTitle && fullContent.trim()) {
             const title = generateTitleFromResponse(fullContent);

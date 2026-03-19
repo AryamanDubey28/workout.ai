@@ -8,6 +8,8 @@ import {
   getRecentFoodSuggestions,
   clearPendingSuggestions,
   createFoodSuggestion,
+  logUsage,
+  UsageTracker,
 } from "@/lib/db";
 import { jaccardSimilarity } from "@/lib/textSimilarity";
 
@@ -111,10 +113,12 @@ async function analyze(state: typeof AgentState.State): Promise<Partial<typeof A
   if (state.error) return {};
 
   try {
+    const tracker = new UsageTracker();
     const llm = new ChatOpenAI({
       model: "gpt-5.4",
       temperature: 0.3,
       openAIApiKey: process.env.OPENAI_API_KEY,
+      callbacks: [tracker.getHandler()],
     });
 
     const structuredLlm = llm.withStructuredOutput(SuggestionsOutputSchema);
@@ -141,6 +145,11 @@ INSTRUCTIONS:
    - The frequency count (how many times it appeared)
 5. Return at most 5 suggestions, prioritized by frequency (highest first).
 6. If no meals qualify (none appear 2+ times, or all are already saved), return an empty suggestions array.`);
+
+    // Fire-and-forget: log token usage
+    if (tracker.usage) {
+      logUsage(state.userId, 'food_suggestions', 'gpt-5.4', tracker.usage).catch(() => {});
+    }
 
     return { suggestions: result.suggestions };
   } catch (err) {
