@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSessionFromCookie } from '@/lib/auth';
 import OpenAI from 'openai';
-import { createMeal } from '@/lib/db';
+import { createMeal, logUsage } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,6 +48,15 @@ Return ONLY a valid JSON object in this exact format:
         temperature: 0.1,
         response_format: { type: 'json_object' },
       });
+
+      // Fire-and-forget: log token usage
+      if (response.usage) {
+        logUsage(session.userId, 'voice_tool', 'gpt-5.4-mini', {
+          promptTokens: response.usage.prompt_tokens ?? 0,
+          completionTokens: response.usage.completion_tokens ?? 0,
+          cachedTokens: (response.usage as any).prompt_tokens_details?.cached_tokens ?? 0,
+        }).catch(() => {});
+      }
 
       const content = response.choices[0]?.message?.content?.trim();
       if (!content) throw new Error('Failed to analyze meal');

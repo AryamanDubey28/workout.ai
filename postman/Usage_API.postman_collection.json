@@ -1,0 +1,183 @@
+{
+  "info": {
+    "name": "Workout AI — Usage API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Per-user cost tracking endpoints for Workout AI"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://workout-ai-app.vercel.app",
+      "type": "string"
+    },
+    {
+      "key": "sessionCookie",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "auth": {
+    "type": "noauth"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Attach session cookie to every request",
+          "if (pm.collectionVariables.get('sessionCookie')) {",
+          "  pm.request.headers.add({",
+          "    key: 'Cookie',",
+          "    value: 'workout-ai-session=' + pm.collectionVariables.get('sessionCookie')",
+          "  });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login (get session cookie)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Extract session cookie from Set-Cookie header",
+                  "const setCookie = pm.response.headers.get('Set-Cookie') || '';",
+                  "const match = setCookie.match(/workout-ai-session=([^;]+)/);",
+                  "if (match) {",
+                  "  pm.collectionVariables.set('sessionCookie', match[1]);",
+                  "  console.log('Session cookie saved');",
+                  "} else {",
+                  "  console.warn('No session cookie found in response');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"arrydube2823@gmail.com\",\n  \"password\": \"Ary282322\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "login"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Usage (Admin)",
+      "item": [
+        {
+          "name": "All users — this month",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/usage?period=month",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "usage"],
+              "query": [
+                { "key": "period", "value": "month" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "All users — this week",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/usage?period=week",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "usage"],
+              "query": [
+                { "key": "period", "value": "week" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "All users — all time",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/usage?period=all",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "usage"],
+              "query": [
+                { "key": "period", "value": "all" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Single user by email — this month",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/usage?period=month&email=arrydube2823@gmail.com",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "usage"],
+              "query": [
+                { "key": "period", "value": "month" },
+                { "key": "email", "value": "arrydube2823@gmail.com" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Single user by email — all time",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/usage?period=all&email=arrydube2823@gmail.com",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "usage"],
+              "query": [
+                { "key": "period", "value": "all" },
+                { "key": "email", "value": "arrydube2823@gmail.com" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Usage (Voice Ingest)",
+      "item": [
+        {
+          "name": "Log voice session usage",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"gpt-realtime-1.5\",\n  \"inputTokens\": 150,\n  \"outputTokens\": 300,\n  \"cachedTokens\": 50,\n  \"audioInputTokens\": 1200,\n  \"audioOutputTokens\": 800\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/usage/voice",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "usage", "voice"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

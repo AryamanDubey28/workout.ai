@@ -498,6 +498,27 @@ export async function initDatabase() {
         ON progression_params(user_id, exercise_name);
     `;
 
+    // Create usage_logs table for per-user cost tracking
+    await sql`
+      CREATE TABLE IF NOT EXISTS usage_logs (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        feature TEXT NOT NULL,
+        model TEXT NOT NULL,
+        prompt_tokens INTEGER DEFAULT 0,
+        completion_tokens INTEGER DEFAULT 0,
+        cached_tokens INTEGER DEFAULT 0,
+        audio_input_tokens INTEGER DEFAULT 0,
+        audio_output_tokens INTEGER DEFAULT 0,
+        estimated_cost NUMERIC(10,6) DEFAULT 0,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS usage_logs_user_created_idx ON usage_logs(user_id, created_at DESC);
+    `;
+
     console.log('Database initialized successfully');
   } catch (error) {
     console.error('Error initializing database:', error);
@@ -2870,5 +2891,156 @@ export async function getUserWorkoutCount(userId: string): Promise<number> {
   } catch (error) {
     console.error('Error getting user workout count:', error);
     return 0;
+  }
+}
+
+// ─── Usage tracking ───────────────────────────────────────────────────────────
+
+// Prices per 1M tokens (update when OpenAI changes pricing)
+const MODEL_PRICING: Record<string, { input: number; cachedInput: number; output: number; audioInput?: number; audioOutput?: number }> = {
+  'gpt-5.4':          { input: 2.50,  cachedInput: 0.25,  output: 15.00 },
+  'gpt-5.4-mini':     { input: 0.75,  cachedInput: 0.075, output: 4.50 },
+  'gpt-realtime-1.5': { input: 4.00,  cachedInput: 0.40,  output: 16.00, audioInput: 32.00, audioOutput: 64.00 },
+};
+
+export interface TokenData {
+  promptTokens: number;
+  completionTokens: number;
+  cachedTokens?: number;
+  audioInputTokens?: number;
+  audioOutputTokens?: number;
+}
+
+function computeCost(model: string, tokens: TokenData): number {
+  const pricing = MODEL_PRICING[model];
+  if (!pricing) return 0;
+
+  const uncachedInput = tokens.promptTokens - (tokens.cachedTokens ?? 0);
+  const cached = tokens.cachedTokens ?? 0;
+  const audioIn = tokens.audioInputTokens ?? 0;
+  const audioOut = tokens.audioOutputTokens ?? 0;
+  const textOut = tokens.completionTokens - audioOut;
+
+  let cost = 0;
+  cost += (uncachedInput / 1_000_000) * pricing.input;
+  cost += (cached / 1_000_000) * pricing.cachedInput;
+  cost += (textOut / 1_000_000) * pricing.output;
+  if (pricing.audioInput) cost += (audioIn / 1_000_000) * pricing.audioInput;
+  if (pricing.audioOutput) cost += (audioOut / 1_000_000) * pricing.audioOutput;
+
+  return cost;
+}
+
+// Simple token usage tracker for LangChain agents
+export class UsageTracker {
+  usage: TokenData | null = null;
+
+  getHandler() {
+    return {
+      handleLLMEnd: (_output: any, _runId: string, _parentRunId?: string, tags?: string[]) => {
+        const tokenUsage = _output?.llmOutput?.tokenUsage;
+        if (tokenUsage) {
+          this.usage = {
+            promptTokens: tokenUsage.promptTokens ?? 0,
+            completionTokens: tokenUsage.completionTokens ?? 0,
+          };
+        }
+      },
+    };
+  }
+}
+
+export async function logUsage(
+  userId: string,
+  feature: string,
+  model: string,
+  tokens: TokenData
+): Promise<void> {
+  try {
+    const estimatedCost = computeCost(model, tokens);
+    await sql`
+      INSERT INTO usage_logs (user_id, feature, model, prompt_tokens, completion_tokens, cached_tokens, audio_input_tokens, audio_output_tokens, estimated_cost)
+      VALUES (
+        ${userId}, ${feature}, ${model},
+        ${tokens.promptTokens}, ${tokens.completionTokens}, ${tokens.cachedTokens ?? 0},
+        ${tokens.audioInputTokens ?? 0}, ${tokens.audioOutputTokens ?? 0},
+        ${estimatedCost}
+      );
+    `;
+  } catch (error) {
+    console.error('Error logging usage:', error);
+  }
+}
+
+export async function getUserUsageSummary(
+  userId: string,
+  startDate: string,
+  endDate: string
+): Promise<{ feature: string; calls: number; totalCost: number; promptTokens: number; completionTokens: number }[]> {
+  try {
+    const result = await sql`
+      SELECT
+        feature,
+        COUNT(*)::integer as calls,
+        COALESCE(SUM(estimated_cost), 0)::numeric as total_cost,
+        COALESCE(SUM(prompt_tokens), 0)::integer as prompt_tokens,
+        COALESCE(SUM(completion_tokens), 0)::integer as completion_tokens
+      FROM usage_logs
+      WHERE user_id = ${userId}
+        AND created_at >= ${startDate}::timestamptz
+        AND created_at < ${endDate}::timestamptz
+      GROUP BY feature
+      ORDER BY total_cost DESC;
+    `;
+    return result.rows.map(r => ({
+      feature: r.feature,
+      calls: Number(r.calls),
+      totalCost: Number(r.total_cost),
+      promptTokens: Number(r.prompt_tokens),
+      completionTokens: Number(r.completion_tokens),
+    }));
+  } catch (error) {
+    console.error('Error getting user usage summary:', error);
+    return [];
+  }
+}
+
+export async function getAllUsageSummary(
+  startDate: string,
+  endDate: string
+): Promise<{ userId: string; name: string; email: string; features: { feature: string; calls: number; totalCost: number }[]; totalCost: number }[]> {
+  try {
+    const result = await sql`
+      SELECT
+        u.id as user_id,
+        u.name,
+        u.email,
+        ul.feature,
+        COUNT(*)::integer as calls,
+        COALESCE(SUM(ul.estimated_cost), 0)::numeric as total_cost
+      FROM usage_logs ul
+      JOIN users u ON u.id = ul.user_id
+      WHERE ul.created_at >= ${startDate}::timestamptz
+        AND ul.created_at < ${endDate}::timestamptz
+      GROUP BY u.id, u.name, u.email, ul.feature
+      ORDER BY u.id, total_cost DESC;
+    `;
+
+    const userMap = new Map<string, { userId: string; name: string; email: string; features: { feature: string; calls: number; totalCost: number }[]; totalCost: number }>();
+    for (const row of result.rows) {
+      const uid = row.user_id;
+      if (!userMap.has(uid)) {
+        userMap.set(uid, { userId: uid, name: row.name, email: row.email, features: [], totalCost: 0 });
+      }
+      const entry = userMap.get(uid)!;
+      const cost = Number(row.total_cost);
+      entry.features.push({ feature: row.feature, calls: Number(row.calls), totalCost: cost });
+      entry.totalCost += cost;
+    }
+
+    return Array.from(userMap.values()).sort((a, b) => b.totalCost - a.totalCost);
+  } catch (error) {
+    console.error('Error getting all usage summary:', error);
+    return [];
   }
 }

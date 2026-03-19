@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSessionFromCookie } from '@/lib/auth';
+import { logUsage } from '@/lib/db';
 import OpenAI from 'openai';
 
 function getOpenAI() {
@@ -112,6 +113,15 @@ export async function POST(request: NextRequest) {
       temperature: 0.1,
       response_format: { type: 'json_object' },
     });
+
+    // Fire-and-forget: log token usage
+    if (response.usage) {
+      logUsage(session.userId, 'meal_analysis', 'gpt-5.4', {
+        promptTokens: response.usage.prompt_tokens ?? 0,
+        completionTokens: response.usage.completion_tokens ?? 0,
+        cachedTokens: (response.usage as any).prompt_tokens_details?.cached_tokens ?? 0,
+      }).catch(() => {});
+    }
 
     const content = response.choices[0]?.message?.content?.trim();
     if (!content) {

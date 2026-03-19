@@ -15,6 +15,8 @@ import {
   getUserMealsForDateRange,
   getMacroGoal,
   getDailyHealthMetrics,
+  logUsage,
+  UsageTracker,
 } from "@/lib/db";
 import { jaccardSimilarity } from "@/lib/textSimilarity";
 import { UserFact, FactCategory } from "@/types/user";
@@ -307,10 +309,12 @@ async function incrementalExtractFacts(
   if (state.error) return {};
 
   try {
+    const tracker = new UsageTracker();
     const llm = new ChatOpenAI({
       model: "gpt-5.4",
       temperature: 0.3,
       openAIApiKey: process.env.OPENAI_API_KEY,
+      callbacks: [tracker.getHandler()],
     });
 
     const structuredLlm = llm.withStructuredOutput(ExtractedFactsSchema);
@@ -353,6 +357,11 @@ INSTRUCTIONS:
 
 6. If nothing worth capturing, return an empty facts array. This is the expected outcome for most routine conversations.`
     );
+
+    // Fire-and-forget: log token usage
+    if (tracker.usage) {
+      logUsage(state.userId, 'personality', 'gpt-5.4', tracker.usage).catch(() => {});
+    }
 
     return { extractedFacts: result.facts };
   } catch (err) {
@@ -575,10 +584,12 @@ async function compactionReview(
   const hasAiFacts = state.aiFacts.length > 0;
 
   try {
+    const tracker = new UsageTracker();
     const llm = new ChatOpenAI({
       model: "gpt-5.4",
       temperature: 0.2,
       openAIApiKey: process.env.OPENAI_API_KEY,
+      callbacks: [tracker.getHandler()],
     });
 
     const structuredLlm = llm.withStructuredOutput(CompactionActionsSchema);
@@ -647,6 +658,11 @@ ${hasAiFacts ? `1. REVIEW every AI fact above. For each one, output exactly one 
 
 ${hasAiFacts ? "8. EVERY existing AI fact must be accounted for with a keep, update, or delete action. Do not skip any." : "8. Since there are no existing facts, focus on adding new ones from the behavioral data and conversations."}`
     );
+
+    // Fire-and-forget: log token usage
+    if (tracker.usage) {
+      logUsage(state.userId, 'personality_compaction', 'gpt-5.4', tracker.usage).catch(() => {});
+    }
 
     return { actions: result.actions };
   } catch (err) {
