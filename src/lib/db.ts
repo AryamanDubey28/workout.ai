@@ -1131,6 +1131,7 @@ export async function reorderWorkoutPresets(userId: string, presetIds: string[])
 }
 
 // Get the next preset in the split cycle based on most recent matching workout
+// If there's a forecast override for today, use that instead of the natural cycle
 export async function getNextSplitPreset(userId: string): Promise<SplitReminder> {
   try {
     // Get all presets in order
@@ -1151,18 +1152,48 @@ export async function getNextSplitPreset(userId: string): Promise<SplitReminder>
       LIMIT 1;
     `;
 
+    // Check if the last matching workout was today
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    let completedToday = false;
+
+    if (lastMatchResult.rows.length > 0) {
+      const lastWorkoutDate = new Date(lastMatchResult.rows[0].date);
+      completedToday = lastWorkoutDate >= todayStart;
+    }
+
+    // Check if there's a forecast override for today
+    const todayStr = toDateOnlyString(now);
+    const overrideResult = await sql`
+      SELECT fo.preset_id, wp.name, wp.type, wp.exercises, wp.sort_order,
+             wp.run_data, wp.created_at, wp.updated_at
+      FROM workout_forecast_overrides fo
+      JOIN workout_presets wp ON fo.preset_id = wp.id
+      WHERE fo.user_id = ${userId}
+        AND fo.forecast_date = ${todayStr}::date;
+    `;
+
+    if (overrideResult.rows.length > 0) {
+      const row = overrideResult.rows[0];
+      const overridePreset: WorkoutPreset = {
+        id: row.preset_id,
+        name: row.name,
+        type: row.type || 'strength',
+        exercises: typeof row.exercises === 'string' ? JSON.parse(row.exercises) : (row.exercises || []),
+        runData: row.run_data ? (typeof row.run_data === 'string' ? JSON.parse(row.run_data) : row.run_data) : undefined,
+        sortOrder: row.sort_order,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      };
+      return { nextPreset: overridePreset, completedToday };
+    }
+
     if (lastMatchResult.rows.length === 0) {
       // No matching workouts yet — suggest the first preset
       return { nextPreset: presets[0], completedToday: false };
     }
 
     const lastWorkout = lastMatchResult.rows[0];
-    const lastWorkoutDate = new Date(lastWorkout.date);
-
-    // Check if the last matching workout was today
-    const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const completedToday = lastWorkoutDate >= todayStart;
 
     // Find which preset was last completed
     const matchIndex = presets.findIndex(
