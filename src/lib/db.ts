@@ -1333,6 +1333,24 @@ export async function cleanupPastForecastOverrides(userId: string): Promise<void
   }
 }
 
+export async function swapForecastDays(
+  userId: string,
+  date1: string,
+  date2: string,
+  preset1: { id: string | null },
+  preset2: { id: string | null },
+): Promise<boolean> {
+  try {
+    // Set date1 to what was on date2, and vice versa
+    await upsertForecastOverride(userId, date1, preset2.id);
+    await upsertForecastOverride(userId, date2, preset1.id);
+    return true;
+  } catch (error) {
+    console.error('Error swapping forecast days:', error);
+    return false;
+  }
+}
+
 // ===== MEAL FUNCTIONS =====
 
 // Create a new meal
