@@ -473,6 +473,13 @@ export async function initDatabase() {
         ON exercise_recommendations(user_id, preset_name, exercise_name, exercise_position);
     `;
 
+    // Recommendation v2 columns: reasoning, alternatives, health advisory
+    await sql`ALTER TABLE exercise_recommendations ADD COLUMN IF NOT EXISTS reasoning VARCHAR(500);`;
+    await sql`ALTER TABLE exercise_recommendations ADD COLUMN IF NOT EXISTS alt_weight VARCHAR(50);`;
+    await sql`ALTER TABLE exercise_recommendations ADD COLUMN IF NOT EXISTS alt_reps INTEGER;`;
+    await sql`ALTER TABLE exercise_recommendations ADD COLUMN IF NOT EXISTS alt_text VARCHAR(255);`;
+    await sql`ALTER TABLE exercise_recommendations ADD COLUMN IF NOT EXISTS health_advisory VARCHAR(500);`;
+
     // Create progression_params table for AI-tuned per-exercise parameters
     await sql`
       CREATE TABLE IF NOT EXISTS progression_params (
@@ -2678,6 +2685,11 @@ export interface RecommendationRow {
   confidence: string;
   stallCount: number;
   basedOnSessions: number;
+  reasoning: string | null;
+  altWeight: string | null;
+  altReps: number | null;
+  altText: string | null;
+  healthAdvisory: string | null;
 }
 
 export interface ProgressionParams {
@@ -2766,6 +2778,11 @@ export async function upsertExerciseRecommendation(
     confidence: string;
     basedOnSessions: number;
     stallCount: number;
+    reasoning?: string | null;
+    altWeight?: string | null;
+    altReps?: number | null;
+    altText?: string | null;
+    healthAdvisory?: string | null;
   }
 ): Promise<void> {
   try {
@@ -2774,11 +2791,14 @@ export async function upsertExerciseRecommendation(
         user_id, preset_name, exercise_name, exercise_position,
         recommended_weight, recommended_reps, recommendation_type,
         recommendation_text, confidence, based_on_sessions, stall_count,
+        reasoning, alt_weight, alt_reps, alt_text, health_advisory,
         created_at, updated_at
       ) VALUES (
         ${userId}, ${data.presetName}, ${data.exerciseName}, ${data.exercisePosition},
         ${data.recommendedWeight}, ${data.recommendedReps}, ${data.recommendationType},
         ${data.recommendationText}, ${data.confidence}, ${data.basedOnSessions}, ${data.stallCount},
+        ${data.reasoning ?? null}, ${data.altWeight ?? null}, ${data.altReps ?? null},
+        ${data.altText ?? null}, ${data.healthAdvisory ?? null},
         NOW(), NOW()
       )
       ON CONFLICT (user_id, preset_name, exercise_name, exercise_position)
@@ -2790,6 +2810,11 @@ export async function upsertExerciseRecommendation(
         confidence = EXCLUDED.confidence,
         based_on_sessions = EXCLUDED.based_on_sessions,
         stall_count = EXCLUDED.stall_count,
+        reasoning = EXCLUDED.reasoning,
+        alt_weight = EXCLUDED.alt_weight,
+        alt_reps = EXCLUDED.alt_reps,
+        alt_text = EXCLUDED.alt_text,
+        health_advisory = EXCLUDED.health_advisory,
         updated_at = NOW();
     `;
   } catch (error) {
@@ -2808,7 +2833,8 @@ export async function getRecommendationsForPreset(
         exercise_name, exercise_position,
         recommended_weight, recommended_reps,
         recommendation_type, recommendation_text,
-        confidence, stall_count, based_on_sessions
+        confidence, stall_count, based_on_sessions,
+        reasoning, alt_weight, alt_reps, alt_text, health_advisory
       FROM exercise_recommendations
       WHERE user_id = ${userId}
         AND LOWER(preset_name) = LOWER(${presetName})
@@ -2825,6 +2851,11 @@ export async function getRecommendationsForPreset(
       confidence: r.confidence,
       stallCount: r.stall_count,
       basedOnSessions: r.based_on_sessions,
+      reasoning: r.reasoning ?? null,
+      altWeight: r.alt_weight ?? null,
+      altReps: r.alt_reps != null ? Number(r.alt_reps) : null,
+      altText: r.alt_text ?? null,
+      healthAdvisory: r.health_advisory ?? null,
     }));
   } catch (error) {
     console.error('Error getting recommendations for preset:', error);
