@@ -1137,11 +1137,19 @@ export async function getNextSplitPreset(userId: string): Promise<SplitReminder>
     // Get all presets in order
     const presets = await getUserPresets(userId);
     if (presets.length === 0) {
-      return { nextPreset: null, completedToday: false };
+      return { nextPreset: null, completedToday: false, cycleIndex: 0 };
     }
 
-    // Find the most recent workout whose name matches any preset (via subquery)
-    const lastMatchResult = await sql`
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayStr = toDateOnlyString(now);
+    const presetCount = presets.length;
+
+    // Get the last N preset-matching workouts (N = presets.length)
+    // Using a batch instead of just the last workout makes cycle detection
+    // resilient to swaps — the cycle position is based on the count of
+    // workouts from the cycle start, not the name of the last workout.
+    const recentResult = await sql`
       SELECT w.name, w.date
       FROM workouts w
       WHERE w.user_id = ${userId}
@@ -1149,21 +1157,17 @@ export async function getNextSplitPreset(userId: string): Promise<SplitReminder>
           SELECT LOWER(wp.name) FROM workout_presets wp WHERE wp.user_id = ${userId}
         )
       ORDER BY w.date DESC, w.created_at DESC
-      LIMIT 1;
+      LIMIT ${presetCount};
     `;
 
-    // Check if the last matching workout was today
-    const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    // Determine completedToday from most recent workout
     let completedToday = false;
-
-    if (lastMatchResult.rows.length > 0) {
-      const lastWorkoutDate = new Date(lastMatchResult.rows[0].date);
+    if (recentResult.rows.length > 0) {
+      const lastWorkoutDate = new Date(recentResult.rows[0].date);
       completedToday = lastWorkoutDate >= todayStart;
     }
 
     // Check if there's a forecast override for today
-    const todayStr = toDateOnlyString(now);
     const overrideResult = await sql`
       SELECT fo.preset_id, wp.name, wp.type, wp.exercises, wp.sort_order,
              wp.run_data, wp.created_at, wp.updated_at
@@ -1173,6 +1177,60 @@ export async function getNextSplitPreset(userId: string): Promise<SplitReminder>
         AND fo.forecast_date = ${todayStr}::date;
     `;
 
+    if (recentResult.rows.length === 0) {
+      // No matching workouts yet — suggest the first preset
+      const firstPreset = presets[0];
+      if (overrideResult.rows.length > 0) {
+        const row = overrideResult.rows[0];
+        const overridePreset: WorkoutPreset = {
+          id: row.preset_id,
+          name: row.name,
+          type: row.type || 'strength',
+          exercises: typeof row.exercises === 'string' ? JSON.parse(row.exercises) : (row.exercises || []),
+          runData: row.run_data ? (typeof row.run_data === 'string' ? JSON.parse(row.run_data) : row.run_data) : undefined,
+          sortOrder: row.sort_order,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+        };
+        return { nextPreset: overridePreset, completedToday: false, cycleIndex: 0 };
+      }
+      return { nextPreset: firstPreset, completedToday: false, cycleIndex: 0 };
+    }
+
+    // Build "current cycle batch" by walking newest→oldest,
+    // stopping at the first duplicate preset (cycle boundary).
+    const seenPresets = new Set<string>();
+    const cycleBatch: { name: string; date: Date; presetIndex: number }[] = [];
+
+    for (const row of recentResult.rows) {
+      const presetIndex = presets.findIndex(
+        p => p.name.toLowerCase() === row.name.toLowerCase()
+      );
+      if (presetIndex === -1) continue;
+
+      const presetKey = presets[presetIndex].name.toLowerCase();
+      if (seenPresets.has(presetKey)) {
+        break; // Crossed a cycle boundary
+      }
+
+      seenPresets.add(presetKey);
+      cycleBatch.push({ name: row.name, date: new Date(row.date), presetIndex });
+    }
+
+    if (cycleBatch.length === 0) {
+      return { nextPreset: presets[0], completedToday: false, cycleIndex: 0 };
+    }
+
+    // The chronologically EARLIEST workout in the batch is the cycle start.
+    // (cycleBatch is newest-first, so the last element is the earliest.)
+    // Advancing by batch-count from the start gives the next cycle position,
+    // regardless of the order workouts were actually completed (handles swaps).
+    const earliestInBatch = cycleBatch[cycleBatch.length - 1];
+    const cycleStartIndex = earliestInBatch.presetIndex;
+    const nextIndex = (cycleStartIndex + cycleBatch.length) % presetCount;
+
+    // If today has a forecast override, return the override for display
+    // but keep cycleIndex based on the cycle computation (not the override's index)
     if (overrideResult.rows.length > 0) {
       const row = overrideResult.rows[0];
       const overridePreset: WorkoutPreset = {
@@ -1185,37 +1243,13 @@ export async function getNextSplitPreset(userId: string): Promise<SplitReminder>
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       };
-      return { nextPreset: overridePreset, completedToday };
+      return { nextPreset: overridePreset, completedToday, cycleIndex: nextIndex };
     }
 
-    if (lastMatchResult.rows.length === 0) {
-      // No matching workouts yet — suggest the first preset
-      return { nextPreset: presets[0], completedToday: false };
-    }
-
-    const lastWorkout = lastMatchResult.rows[0];
-
-    // Find which preset was last completed
-    const matchIndex = presets.findIndex(
-      p => p.name.toLowerCase() === lastWorkout.name.toLowerCase()
-    );
-
-    if (matchIndex === -1) {
-      return { nextPreset: presets[0], completedToday: false };
-    }
-
-    // Next preset in rotation
-    const nextIndex = (matchIndex + 1) % presets.length;
-
-    if (completedToday) {
-      // Already completed today's workout — show next one but mark as done
-      return { nextPreset: presets[nextIndex], completedToday: true };
-    }
-
-    return { nextPreset: presets[nextIndex], completedToday: false };
+    return { nextPreset: presets[nextIndex], completedToday, cycleIndex: nextIndex };
   } catch (error) {
     console.error('Error getting next split preset:', error);
-    return { nextPreset: null, completedToday: false };
+    return { nextPreset: null, completedToday: false, cycleIndex: 0 };
   }
 }
 
@@ -1243,13 +1277,11 @@ export async function getWorkoutForecast(userId: string, days: number = 7): Prom
       return result;
     }
 
-    // Determine starting cycle index from split rotation
+    // Determine starting cycle index from split rotation.
+    // Uses cycleIndex (batch-based) instead of mapping nextPreset's id,
+    // so the cycle is resilient to swaps and overrides.
     const splitReminder = await getNextSplitPreset(userId);
-    let cycleIndex = 0;
-    if (splitReminder.nextPreset) {
-      const idx = presets.findIndex(p => p.id === splitReminder.nextPreset!.id);
-      if (idx !== -1) cycleIndex = idx;
-    }
+    let cycleIndex = splitReminder.cycleIndex;
 
     // If today's workout is already done, back up the cycle so today
     // shows the completed preset and tomorrow starts with nextPreset
@@ -1282,7 +1314,10 @@ export async function getWorkoutForecast(userId: string, days: number = 7): Prom
       });
     }
 
-    // Build the forecast array
+    // Build the forecast array.
+    // Both override and cycle days advance the cycle position by 1,
+    // EXCEPT rest-day overrides (presetId=null) which pause the cycle
+    // so the skipped workout appears on the next day.
     const forecast: ForecastDay[] = [];
     for (let i = 0; i < days; i++) {
       const d = new Date(today);
@@ -1291,7 +1326,6 @@ export async function getWorkoutForecast(userId: string, days: number = 7): Prom
 
       const override = overrideMap.get(dateStr);
       if (override !== undefined) {
-        // User override — does NOT advance the cycle
         forecast.push({
           date: dateStr,
           presetId: override.presetId,
@@ -1299,6 +1333,11 @@ export async function getWorkoutForecast(userId: string, days: number = 7): Prom
           presetType: (override.presetType as WorkoutType) || null,
           isOverride: true,
         });
+        // Advance cycle for workout overrides (swaps etc.) so that
+        // days after the override window stay correct
+        if (override.presetId !== null) {
+          cycleIndex++;
+        }
       } else {
         // Use the next preset in cycle
         const preset = presets[cycleIndex % presets.length];

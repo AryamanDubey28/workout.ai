@@ -46,6 +46,7 @@ export interface WorkoutPreset {
 export interface SplitReminder {
   nextPreset: WorkoutPreset | null;
   completedToday: boolean;
+  cycleIndex: number;
 }
 
 export interface ForecastDay {
